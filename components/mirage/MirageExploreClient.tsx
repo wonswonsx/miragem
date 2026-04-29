@@ -370,6 +370,7 @@ export function MirageExploreClient({
 
       setGeneratingId(item.id ?? null);
       setUploadingImage(true);
+      setModalToast(null);
       try {
         const {
           data: { user },
@@ -380,8 +381,33 @@ export function MirageExploreClient({
           return;
         }
 
-        // Gravar na tabela generations com modo e custo
-        const { data: inserted, error } = await supabase
+        // 1. Verificar e debitar diamantes atomicamente
+        const { data: debitResult, error: debitError } = await supabase
+          .rpc('check_and_debit_diamonds' as any, {
+            user_id_param: user.id,
+            cost_param: cost,
+          });
+
+        if (debitError) {
+          console.error('Erro ao debitar diamantes:', debitError);
+          setModalToast({ type: 'error', msg: 'Erro ao processar diamantes. Tente novamente.' });
+          return;
+        }
+
+        const debit = Array.isArray(debitResult) ? debitResult[0] : debitResult;
+        if (!debit?.success) {
+          const msg = debit?.message ?? 'Saldo insuficiente';
+          setModalToast({
+            type: 'error',
+            msg: msg === 'Saldo insuficiente'
+              ? `Diamantes insuficientes. Você precisa de ${cost} 💎.`
+              : msg,
+          });
+          return;
+        }
+
+        // 2. Criar registro na tabela generations
+        const { data: inserted, error: insertError } = await supabase
           .from('generations' as any)
           .insert({
             user_id: user.id,
@@ -394,20 +420,24 @@ export function MirageExploreClient({
           .select('id')
           .single();
 
-        if (error) {
-          console.error('Erro ao criar geração:', error);
-          alert('Erro ao solicitar geração. Tente novamente.');
+        if (insertError) {
+          console.error('Erro ao criar geração:', insertError);
+          setModalToast({ type: 'error', msg: 'Erro ao criar pedido. Tente novamente.' });
           return;
         }
 
-        console.log('Geração criada:', { id: (inserted as any)?.id, mode, cost });
+        console.log('Geração criada:', { id: (inserted as any)?.id, mode, cost, saldo_restante: debit?.diamonds_after });
+        setModalToast({ type: 'success', msg: `Pedido criado! Saldo restante: ${debit?.diamonds_after} 💎` });
 
-        setUploadModalOpen(false);
-        router.push('/minha-geracao');
+        // Redirecionar após breve delay para o toast ser lido
+        setTimeout(() => {
+          setUploadModalOpen(false);
+          router.push('/minha-geracao');
+        }, 1200);
 
       } catch (err) {
         console.error('Erro no fluxo de geração:', err);
-        alert('Erro ao solicitar geração. Tente novamente.');
+        setModalToast({ type: 'error', msg: 'Erro inesperado. Tente novamente.' });
       } finally {
         setGeneratingId(null);
         setUploadingImage(false);
@@ -1125,14 +1155,17 @@ export function MirageExploreClient({
                     Sua foto ou GIF <span className="text-zinc-500 font-normal">(opcional)</span>
                   </label>
                   <input
-                    type="file"
-                    accept="image/*, image/gif"
-                    onChange={(e) => {
-                      setImageFile(e.target.files?.[0] ?? null);
-                      setModalToast(null);
-                    }}
-                    className="w-full cursor-pointer rounded-xl border border-[rgba(147,112,219,0.3)] bg-zinc-900/50 px-4 py-3 text-white transition file:mr-4 file:cursor-pointer file:rounded-full file:border-0 file:bg-violet-600 file:px-4 file:py-2 file:text-sm file:font-semibold file:text-white hover:file:bg-violet-700"
-                  />
+  type="file"
+  // Adicione image/gif explicitamente se o image/* falhar em alguns navegadores
+  accept="image/png, image/jpeg, image/jpg, image/gif" 
+  onChange={(e) => {
+    const file = e.target.files?.[0] ?? null;
+    setImageFile(file);
+    console.log("Arquivo selecionado:", file?.name); // Para você ver no console se pegou o GIF
+    setModalToast(null);
+  }}
+ className="w-full cursor-pointer rounded-xl border border-zinc-700 bg-zinc-900/50 px-4 py-3 text-sm text-zinc-300 transition file:mr-4 file:rounded-lg file:border-0 file:bg-violet-600 file:px-3 file:py-1 file:text-xs file:font-semibold file:text-white hover:file:bg-violet-500"
+/>
                   {imageFile && (
                     <div className="flex items-center gap-2 text-sm text-green-400">
                       <CheckCircle2 className="h-4 w-4" />
@@ -1154,66 +1187,63 @@ export function MirageExploreClient({
 
                 {/* Botões — SEM disabled */}
                 <div className="space-y-3">
+  {/* Botão A: Padrão 50 💎 */}
+  <button
+    type="button"
+    style={{ pointerEvents: 'auto', cursor: 'pointer' }}
+    onClick={() => {
+      console.log('Botão Clicado! [Padrão 50💎]');
+      setModalToast(null);
+      // Se não tiver modelo, a gente avisa em vez de só travar
+      if (!selectedModel) {
+        alert("Por favor, selecione um modelo antes de gerar!");
+        return;
+      }
+      void handleGenerateForItem(selectedModel, 'padrao', 50);
+    }}
+    className="w-full rounded-xl border border-violet-500/50 bg-gradient-to-r from-violet-600 to-fuchsia-600 px-5 py-3.5 text-sm font-semibold text-white shadow-lg shadow-violet-900/40 transition-all duration-200 hover:from-violet-500 hover:to-fuchsia-500 hover:shadow-violet-500/50 hover:shadow-xl active:scale-[0.98]"
+  >
+    {uploadingImage ? (
+      <span className="flex items-center justify-center gap-2">
+        <LoaderCircle className="h-4 w-4 animate-spin" />
+        Gerando...
+      </span>
+    ) : (
+      <span className="flex items-center justify-center gap-2">
+        <Sparkles className="h-4 w-4" />
+        Gerar Vídeo (50 💎)
+      </span>
+    )}
+  </button>
 
-                  {/* Botão A: Padrão 50 💎 */}
-                  <button
-                    type="button"
-                    style={{ pointerEvents: 'auto', cursor: 'pointer' }}
-                    onClick={() => {
-                      console.log('Botão Clicado! [Padrão 50💎]');
-                      setModalToast(null);
-                      if (!selectedModel) return;
-                      void handleGenerateForItem(selectedModel, 'padrao', 50);
-                    }}
-                    className="w-full rounded-xl border border-violet-500/50 bg-gradient-to-r from-violet-600 to-fuchsia-600 px-5 py-3.5 text-sm font-semibold text-white shadow-lg shadow-violet-900/40 transition-all duration-200 hover:from-violet-500 hover:to-fuchsia-500 hover:shadow-violet-500/50 hover:shadow-xl active:scale-[0.98]"
-                  >
-                    {uploadingImage ? (
-                      <span className="flex items-center justify-center gap-2">
-                        <LoaderCircle className="h-4 w-4 animate-spin" />
-                        Gerando...
-                      </span>
-                    ) : (
-                      <span className="flex items-center justify-center gap-2">
-                        <Sparkles className="h-4 w-4" />
-                        Gerar Vídeo (50 💎)
-                      </span>
-                    )}
-                  </button>
-
-                  {/* Botão B: Estendido 100 💎 - estilo VIP dourado */}
-                  <button
-                    type="button"
-                    style={{ pointerEvents: 'auto', cursor: 'pointer', boxShadow: '0 0 24px rgba(251,191,36,0.2), 0 4px 16px rgba(0,0,0,0.5)' }}
-                    onClick={() => {
-                      console.log('Botão Clicado! [Estendido 100💎]');
-                      setModalToast(null);
-                      if (!selectedModel) return;
-                      void handleGenerateForItem(selectedModel, 'estendido', 100);
-                    }}
-                    className="w-full rounded-xl border-2 border-amber-400/70 bg-gradient-to-r from-amber-900/60 to-yellow-900/60 px-5 py-3.5 text-sm font-semibold text-amber-200 transition-all duration-200 hover:border-amber-300 hover:from-amber-800/70 hover:to-yellow-800/70 hover:text-amber-100 hover:shadow-amber-400/40 hover:shadow-xl active:scale-[0.98]"
-                  >
-                    {uploadingImage ? (
-                      <span className="flex items-center justify-center gap-2">
-                        <LoaderCircle className="h-4 w-4 animate-spin" />
-                        Gerando...
-                      </span>
-                    ) : (
-                      <span className="flex items-center justify-center gap-2">
-                        <Gem className="h-4 w-4" />
-                        Geração Estendida (100 💎)
-                      </span>
-                    )}
-                  </button>
-
-                  <button
-                    type="button"
-                    style={{ pointerEvents: 'auto', cursor: 'pointer' }}
-                    onClick={() => { setUploadModalOpen(false); setModalToast(null); }}
-                    className="w-full rounded-xl border border-zinc-700/50 bg-zinc-900/40 px-4 py-2.5 text-sm font-medium text-zinc-400 transition hover:bg-zinc-800/60 hover:text-zinc-200"
-                  >
-                    Cancelar
-                  </button>
-                </div>
+  {/* Botão B: Estendido 100 💎 - estilo VIP dourado */}
+  <button
+    type="button"
+    style={{ pointerEvents: 'auto', cursor: 'pointer', boxShadow: '0 0 24px rgba(251,191,36,0.2), 0 4px 16px rgba(0,0,0,0.5)' }}
+    onClick={() => {
+      console.log('Botão Clicado! [Estendido 100💎]');
+      setModalToast(null);
+      if (!selectedModel) {
+        alert("Por favor, selecione um modelo antes de gerar!");
+        return;
+      }
+      void handleGenerateForItem(selectedModel, 'estendido', 100);
+    }}
+    className="w-full rounded-xl border-2 border-amber-400/70 bg-gradient-to-r from-amber-900/60 to-yellow-900/60 px-5 py-3.5 text-sm font-semibold text-amber-200 transition-all duration-200 hover:border-amber-300 hover:from-amber-800/70 hover:to-yellow-800/70 hover:text-amber-100 hover:shadow-amber-400/40 hover:shadow-xl active:scale-[0.98]"
+  >
+    {uploadingImage ? (
+      <span className="flex items-center justify-center gap-2">
+        <LoaderCircle className="h-4 w-4 animate-spin" />
+        Gerando...
+      </span>
+    ) : (
+      <span className="flex items-center justify-center gap-2">
+        <Gem className="h-4 w-4" />
+        Geração Estendida (100 💎)
+      </span>
+    )}
+  </button>
+</div>
               </div>
             </div>
           </div>
