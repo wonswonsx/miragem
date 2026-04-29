@@ -325,7 +325,10 @@ export function VideoGenerationUpload({ userId, onGenerateComplete }: VideoGener
             src={finalVideoUrl}
             className="h-full w-full object-cover"
             controls
+            muted
+            loop
             playsInline
+            autoPlay
           />
         </div>
         <a

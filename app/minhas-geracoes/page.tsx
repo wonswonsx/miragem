@@ -214,7 +214,10 @@ function GenerationCard({ generation }: { generation: Generation }) {
             src={generation.video_url}
             className="h-full w-full object-cover"
             controls
+            muted
+            loop
             playsInline
+            autoPlay
             poster={generation.image_url}
           />
         ) : (

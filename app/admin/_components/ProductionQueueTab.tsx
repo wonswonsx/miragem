@@ -330,6 +330,10 @@ export function ProductionQueueTab() {
                           <video
                             src={URL.createObjectURL(videoFile)}
                             className="h-full w-full object-cover rounded-lg"
+                            muted
+                            loop
+                            playsInline
+                            controls
                           />
                           <div className="absolute bottom-2 right-2 bg-black/70 px-2 py-1 rounded text-xs">
                             {videoFile.name}
