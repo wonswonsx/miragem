@@ -20,7 +20,7 @@ import { getVideoThumbnailUrl } from "@/lib/videoThumb";
 import { isSupabaseConfigured, supabase } from "@/lib/supabaseClient";
 import type { VideoRow } from "@/types/database";
 import type { AuthChangeEvent, Session } from "@supabase/supabase-js";
-import { Gem, Search, Sparkles, LoaderCircle, X } from "lucide-react";
+import { Gem, Search, Sparkles, LoaderCircle, X, CheckCircle2 } from "lucide-react";
 import Link from "next/link";
 import { VideoGenerationUpload } from "@/components/mirage/VideoGenerationUpload";
 import { usePathname, useRouter } from "next/navigation";
@@ -1061,75 +1061,102 @@ export function MirageExploreClient({
       {/* Modal de Upload de Imagem */}
       {uploadModalOpen && selectedModel && (
         <div
-          className="fixed inset-0 z-[1000] flex items-center justify-center p-5"
+          className="fixed inset-0 z-50 flex items-center justify-center p-4 sm:p-6"
           role="dialog"
           aria-modal="true"
           aria-labelledby="upload-modal-title"
         >
-          <div className="fixed inset-0 bg-black/70 backdrop-blur-sm" onClick={() => setUploadModalOpen(false)} />
-          <div className="relative w-full max-w-md rounded-2xl border border-[rgba(147,112,219,0.4)] bg-[#1a1025] p-6 shadow-2xl">
+          <div className="fixed inset-0 bg-black/75 backdrop-blur-md" onClick={() => setUploadModalOpen(false)} />
+          <div className="relative w-full max-w-5xl rounded-2xl border border-[rgba(147,112,219,0.4)] bg-[#1a1025] shadow-2xl overflow-hidden">
             <button
               type="button"
-              className="absolute right-4 top-4 rounded-lg p-2 text-zinc-400 hover:bg-white/10 hover:text-white"
+              className="absolute right-4 top-4 z-10 rounded-lg p-2 text-zinc-400 hover:bg-white/10 hover:text-white"
               onClick={() => setUploadModalOpen(false)}
               aria-label="Fechar"
             >
               <X className="h-5 w-5" />
             </button>
             
-            <div className="space-y-4">
-              <div>
-                <h3
-                  id="upload-modal-title"
-                  className="text-lg font-semibold text-white"
-                >
-                  Enviar Imagem para Processamento
-                </h3>
-                <p className="mt-1 text-sm text-zinc-400">
-                  Modelo: {getItemTitle(selectedModel)}
-                </p>
-              </div>
-
-              <div className="space-y-2">
-                <label className="block text-sm font-medium text-zinc-300">
-                  Sua Imagem
-                </label>
-                <input
-                  type="file"
-                  accept="image/*"
-                  onChange={(e) => setImageFile(e.target.files?.[0] ?? null)}
-                  className="w-full rounded-lg border border-[rgba(147,112,219,0.3)] bg-zinc-900 px-3 py-2 text-white file:mr-3 file:rounded-full file:border-0 file:bg-violet-600 file:px-4 file:py-2 file:text-sm file:font-semibold file:text-white hover:file:bg-violet-700"
-                />
-                {imageFile && (
-                  <div className="mt-2 text-xs text-zinc-400">
-                    Arquivo selecionado: {imageFile.name}
-                  </div>
+            <div className="grid lg:grid-cols-2">
+              {/* Lado Esquerdo - Vídeo Original Grande */}
+              <div className="aspect-video lg:aspect-auto lg:h-auto bg-black flex items-center justify-center">
+                {selectedModel.type === "image" ? (
+                  <img
+                    src={getStreamUrl(selectedModel)}
+                    alt={getItemTitle(selectedModel)}
+                    className="max-h-[60vh] w-auto object-contain"
+                  />
+                ) : (
+                  <VideoThumb item={selectedModel} />
                 )}
               </div>
 
-              <div className="flex gap-3 pt-2">
-                <button
-                  type="button"
-                  onClick={() => setUploadModalOpen(false)}
-                  className="flex-1 rounded-lg border border-[rgba(147,112,219,0.3)] bg-zinc-800 px-4 py-2 text-sm font-medium text-zinc-300 hover:bg-zinc-700"
-                >
-                  Cancelar
-                </button>
-                <button
-                  type="button"
-                  onClick={handleImageUpload}
-                  disabled={!imageFile || uploadingImage}
-                  className="flex-1 rounded-lg bg-gradient-to-r from-violet-600 to-fuchsia-600 px-4 py-2 text-sm font-medium text-white shadow-lg shadow-violet-900/30 disabled:opacity-50 disabled:cursor-not-allowed"
-                >
-                  {uploadingImage ? (
-                    <span className="flex items-center justify-center gap-2">
-                      <LoaderCircle className="h-4 w-4 animate-spin" />
-                      Enviando...
-                    </span>
-                  ) : (
-                    'Enviar para Admin'
+              {/* Lado Direito - Upload e Botão Gerar */}
+              <div className="p-6 sm:p-8 flex flex-col justify-center space-y-6">
+                <div>
+                  <h3
+                    id="upload-modal-title"
+                    className="text-xl sm:text-2xl font-bold text-white"
+                  >
+                    Gerar Vídeo Personalizado
+                  </h3>
+                  <p className="mt-2 text-sm text-zinc-400">
+                    Modelo: <span className="text-violet-300 font-medium">{getItemTitle(selectedModel)}</span>
+                  </p>
+                </div>
+
+                <div className="space-y-3">
+                  <label className="block text-sm font-medium text-zinc-300">
+                    Envie sua foto
+                  </label>
+                  <input
+                    type="file"
+                    accept="image/*"
+                    onChange={(e) => setImageFile(e.target.files?.[0] ?? null)}
+                    className="w-full rounded-xl border border-[rgba(147,112,219,0.3)] bg-zinc-900/50 px-4 py-3 text-white file:mr-4 file:rounded-full file:border-0 file:bg-violet-600 file:px-4 file:py-2 file:text-sm file:font-semibold file:text-white hover:file:bg-violet-700 transition"
+                  />
+                  {imageFile && (
+                    <div className="text-sm text-green-400 flex items-center gap-2">
+                      <CheckCircle2 className="h-4 w-4" />
+                      Arquivo selecionado: {imageFile.name}
+                    </div>
                   )}
-                </button>
+                </div>
+
+                {/* Custo em Créditos */}
+                <div className="flex items-center gap-2 text-sm text-zinc-300">
+                  <span className="text-violet-400 font-semibold">Custo:</span>
+                  <span className="text-white font-bold">50 Créditos</span>
+                </div>
+
+                <div className="flex gap-3 pt-2">
+                  <button
+                    type="button"
+                    onClick={() => setUploadModalOpen(false)}
+                    className="flex-1 rounded-xl border border-[rgba(147,112,219,0.3)] bg-zinc-800/50 px-4 py-3 text-sm font-medium text-zinc-300 hover:bg-zinc-700/50 transition"
+                  >
+                    Cancelar
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      if (selectedModel) {
+                        handleGenerateForItem(selectedModel);
+                      }
+                    }}
+                    disabled={!imageFile || uploadingImage}
+                    className="flex-1 rounded-xl bg-gradient-to-r from-violet-600 to-fuchsia-600 px-4 py-3 text-sm font-medium text-white shadow-lg shadow-violet-900/30 disabled:opacity-50 disabled:cursor-not-allowed transition hover:from-violet-700 hover:to-fuchsia-700"
+                  >
+                    {uploadingImage ? (
+                      <span className="flex items-center justify-center gap-2">
+                        <LoaderCircle className="h-4 w-4 animate-spin" />
+                        Gerando...
+                      </span>
+                    ) : (
+                      'Gerar Vídeo'
+                    )}
+                  </button>
+                </div>
               </div>
             </div>
           </div>
