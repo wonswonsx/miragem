@@ -362,6 +362,7 @@ export function MirageExploreClient({
   const [selectedModel, setSelectedModel] = useState<MediaItem | null>(null);
   const [imageFile, setImageFile] = useState<File | null>(null);
   const [uploadingImage, setUploadingImage] = useState(false);
+  const [modalToast, setModalToast] = useState<{ type: 'error' | 'success'; msg: string } | null>(null);
 
   const handleGenerateForItem = useCallback(
     async (item: MediaItem, mode: 'padrao' | 'estendido' = 'padrao', cost: number = 50) => {
@@ -1080,7 +1081,7 @@ export function MirageExploreClient({
           aria-labelledby="upload-modal-title"
         >
           <div className="fixed inset-0 bg-black/75 backdrop-blur-md" onClick={() => setUploadModalOpen(false)} />
-          <div className="relative w-full max-w-5xl rounded-2xl border border-[rgba(147,112,219,0.4)] bg-[#1a1025] shadow-2xl overflow-hidden">
+          <div className="relative z-10 w-full max-w-5xl rounded-2xl border border-[rgba(147,112,219,0.4)] bg-[#1a1025] shadow-2xl overflow-hidden">
             <button
               type="button"
               className="absolute right-4 top-4 z-10 rounded-lg p-2 text-zinc-400 hover:bg-white/10 hover:text-white"
@@ -1118,34 +1119,53 @@ export function MirageExploreClient({
                   </p>
                 </div>
 
-                <div className="space-y-3">
+                {/* Upload de imagem / GIF */}
+                <div className="space-y-2">
                   <label className="block text-sm font-medium text-zinc-300">
-                    Envie sua foto <span className="text-zinc-500 font-normal">(opcional)</span>
+                    Sua foto ou GIF <span className="text-zinc-500 font-normal">(opcional)</span>
                   </label>
                   <input
                     type="file"
-                    accept="image/*"
-                    onChange={(e) => setImageFile(e.target.files?.[0] ?? null)}
-                    className="w-full rounded-xl border border-[rgba(147,112,219,0.3)] bg-zinc-900/50 px-4 py-3 text-white file:mr-4 file:rounded-full file:border-0 file:bg-violet-600 file:px-4 file:py-2 file:text-sm file:font-semibold file:text-white hover:file:bg-violet-700 transition"
+                    accept="image/*, image/gif"
+                    onChange={(e) => {
+                      setImageFile(e.target.files?.[0] ?? null);
+                      setModalToast(null);
+                    }}
+                    className="w-full cursor-pointer rounded-xl border border-[rgba(147,112,219,0.3)] bg-zinc-900/50 px-4 py-3 text-white transition file:mr-4 file:cursor-pointer file:rounded-full file:border-0 file:bg-violet-600 file:px-4 file:py-2 file:text-sm file:font-semibold file:text-white hover:file:bg-violet-700"
                   />
                   {imageFile && (
-                    <div className="text-sm text-green-400 flex items-center gap-2">
+                    <div className="flex items-center gap-2 text-sm text-green-400">
                       <CheckCircle2 className="h-4 w-4" />
                       {imageFile.name}
                     </div>
                   )}
                 </div>
 
-                {/* Botões de geração */}
-                <div className="space-y-3 pt-1">
-                  {/* Botão Padrão */}
+                {/* Inline toast */}
+                {modalToast && (
+                  <div className={`rounded-lg border px-4 py-3 text-sm ${
+                    modalToast.type === 'error'
+                      ? 'border-red-500/30 bg-red-950/40 text-red-300'
+                      : 'border-emerald-500/30 bg-emerald-950/40 text-emerald-300'
+                  }`}>
+                    {modalToast.msg}
+                  </div>
+                )}
+
+                {/* Botões — SEM disabled */}
+                <div className="space-y-3">
+
+                  {/* Botão A: Padrão 50 💎 */}
                   <button
                     type="button"
-                    disabled={uploadingImage}
+                    style={{ pointerEvents: 'auto', cursor: 'pointer' }}
                     onClick={() => {
-                      if (selectedModel) handleGenerateForItem(selectedModel, 'padrao', 50);
+                      console.log('Botão Clicado! [Padrão 50💎]');
+                      setModalToast(null);
+                      if (!selectedModel) return;
+                      void handleGenerateForItem(selectedModel, 'padrao', 50);
                     }}
-                    className="relative w-full overflow-hidden rounded-xl border border-violet-500/40 bg-gradient-to-r from-violet-600/80 to-fuchsia-600/80 px-5 py-3.5 text-sm font-semibold text-white shadow-lg shadow-violet-900/40 backdrop-blur-sm transition-all duration-200 hover:from-violet-600 hover:to-fuchsia-600 hover:shadow-violet-500/50 hover:shadow-xl disabled:opacity-50 disabled:cursor-not-allowed"
+                    className="w-full rounded-xl border border-violet-500/50 bg-gradient-to-r from-violet-600 to-fuchsia-600 px-5 py-3.5 text-sm font-semibold text-white shadow-lg shadow-violet-900/40 transition-all duration-200 hover:from-violet-500 hover:to-fuchsia-500 hover:shadow-violet-500/50 hover:shadow-xl active:scale-[0.98]"
                   >
                     {uploadingImage ? (
                       <span className="flex items-center justify-center gap-2">
@@ -1160,15 +1180,17 @@ export function MirageExploreClient({
                     )}
                   </button>
 
-                  {/* Botão Estendido Premium */}
+                  {/* Botão B: Estendido 100 💎 - estilo VIP dourado */}
                   <button
                     type="button"
-                    disabled={uploadingImage}
+                    style={{ pointerEvents: 'auto', cursor: 'pointer', boxShadow: '0 0 24px rgba(251,191,36,0.2), 0 4px 16px rgba(0,0,0,0.5)' }}
                     onClick={() => {
-                      if (selectedModel) handleGenerateForItem(selectedModel, 'estendido', 100);
+                      console.log('Botão Clicado! [Estendido 100💎]');
+                      setModalToast(null);
+                      if (!selectedModel) return;
+                      void handleGenerateForItem(selectedModel, 'estendido', 100);
                     }}
-                    className="relative w-full overflow-hidden rounded-xl border border-amber-400/60 bg-gradient-to-r from-amber-500/20 to-yellow-500/20 px-5 py-3.5 text-sm font-semibold text-amber-200 shadow-lg shadow-amber-900/30 backdrop-blur-sm transition-all duration-200 hover:border-amber-400/90 hover:from-amber-500/35 hover:to-yellow-500/35 hover:shadow-amber-500/40 hover:shadow-xl disabled:opacity-50 disabled:cursor-not-allowed"
-                    style={{ boxShadow: '0 0 20px rgba(251,191,36,0.15), 0 4px 16px rgba(0,0,0,0.4)' }}
+                    className="w-full rounded-xl border-2 border-amber-400/70 bg-gradient-to-r from-amber-900/60 to-yellow-900/60 px-5 py-3.5 text-sm font-semibold text-amber-200 transition-all duration-200 hover:border-amber-300 hover:from-amber-800/70 hover:to-yellow-800/70 hover:text-amber-100 hover:shadow-amber-400/40 hover:shadow-xl active:scale-[0.98]"
                   >
                     {uploadingImage ? (
                       <span className="flex items-center justify-center gap-2">
@@ -1177,7 +1199,7 @@ export function MirageExploreClient({
                       </span>
                     ) : (
                       <span className="flex items-center justify-center gap-2">
-                        <Gem className="h-4 w-4 text-amber-300" />
+                        <Gem className="h-4 w-4" />
                         Geração Estendida (100 💎)
                       </span>
                     )}
@@ -1185,8 +1207,9 @@ export function MirageExploreClient({
 
                   <button
                     type="button"
-                    onClick={() => setUploadModalOpen(false)}
-                    className="w-full rounded-xl border border-[rgba(147,112,219,0.2)] bg-zinc-900/30 px-4 py-2.5 text-sm font-medium text-zinc-400 hover:bg-zinc-800/50 hover:text-zinc-200 transition backdrop-blur-sm"
+                    style={{ pointerEvents: 'auto', cursor: 'pointer' }}
+                    onClick={() => { setUploadModalOpen(false); setModalToast(null); }}
+                    className="w-full rounded-xl border border-zinc-700/50 bg-zinc-900/40 px-4 py-2.5 text-sm font-medium text-zinc-400 transition hover:bg-zinc-800/60 hover:text-zinc-200"
                   >
                     Cancelar
                   </button>
