@@ -487,7 +487,8 @@ export function MirageExploreClient({
       try {
         let q = supabase
           .from("videos")
-          .select("id, title, video_url, thumbnail_url, prompt")
+          .select("*")
+          .eq("is_published" as any, true)
           .order("id", { ascending: false });
         if (explorePagination) {
           const to = from + BATCH_EXPLORE_DB - 1;
