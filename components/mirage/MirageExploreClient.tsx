@@ -364,10 +364,11 @@ export function MirageExploreClient({
   const [uploadingImage, setUploadingImage] = useState(false);
 
   const handleGenerateForItem = useCallback(
-    async (item: MediaItem) => {
+    async (item: MediaItem, mode: 'padrao' | 'estendido' = 'padrao', cost: number = 50) => {
       if (!isSupabaseConfigured()) return;
 
       setGeneratingId(item.id ?? null);
+      setUploadingImage(true);
       try {
         const {
           data: { user },
@@ -378,7 +379,7 @@ export function MirageExploreClient({
           return;
         }
 
-        // Gravar na tabela generations com o ID do vídeo e a URL do Cloudflare
+        // Gravar na tabela generations com modo e custo
         const { data: inserted, error } = await supabase
           .from('generations' as any)
           .insert({
@@ -386,6 +387,8 @@ export function MirageExploreClient({
             video_id: item.id ?? null,
             source_url: item.absoluteVideoUrl ?? null,
             status: 'pendente',
+            mode: mode,
+            diamond_cost: cost,
           })
           .select('id')
           .single();
@@ -396,9 +399,9 @@ export function MirageExploreClient({
           return;
         }
 
-        console.log('Geração criada com sucesso:', inserted);
+        console.log('Geração criada:', { id: (inserted as any)?.id, mode, cost });
 
-        // Redirecionar para /minha-geracao
+        setUploadModalOpen(false);
         router.push('/minha-geracao');
 
       } catch (err) {
@@ -406,6 +409,7 @@ export function MirageExploreClient({
         alert('Erro ao solicitar geração. Tente novamente.');
       } finally {
         setGeneratingId(null);
+        setUploadingImage(false);
       }
     },
     [router, pathname],
@@ -1100,8 +1104,8 @@ export function MirageExploreClient({
                 )}
               </div>
 
-              {/* Lado Direito - Upload e Botão Gerar */}
-              <div className="p-6 sm:p-8 flex flex-col justify-center space-y-6">
+              {/* Lado Direito - Upload e Botões */}
+              <div className="p-6 sm:p-8 flex flex-col justify-center space-y-5">
                 <div>
                   <h3
                     id="upload-modal-title"
@@ -1116,7 +1120,7 @@ export function MirageExploreClient({
 
                 <div className="space-y-3">
                   <label className="block text-sm font-medium text-zinc-300">
-                    Envie sua foto
+                    Envie sua foto <span className="text-zinc-500 font-normal">(opcional)</span>
                   </label>
                   <input
                     type="file"
@@ -1127,34 +1131,21 @@ export function MirageExploreClient({
                   {imageFile && (
                     <div className="text-sm text-green-400 flex items-center gap-2">
                       <CheckCircle2 className="h-4 w-4" />
-                      Arquivo selecionado: {imageFile.name}
+                      {imageFile.name}
                     </div>
                   )}
                 </div>
 
-                {/* Custo em Créditos */}
-                <div className="flex items-center gap-2 text-sm text-zinc-300">
-                  <span className="text-violet-400 font-semibold">Custo:</span>
-                  <span className="text-white font-bold">50 Créditos</span>
-                </div>
-
-                <div className="flex gap-3 pt-2">
+                {/* Botões de geração */}
+                <div className="space-y-3 pt-1">
+                  {/* Botão Padrão */}
                   <button
                     type="button"
-                    onClick={() => setUploadModalOpen(false)}
-                    className="flex-1 rounded-xl border border-[rgba(147,112,219,0.3)] bg-zinc-800/50 px-4 py-3 text-sm font-medium text-zinc-300 hover:bg-zinc-700/50 transition"
-                  >
-                    Cancelar
-                  </button>
-                  <button
-                    type="button"
+                    disabled={uploadingImage}
                     onClick={() => {
-                      if (selectedModel) {
-                        handleGenerateForItem(selectedModel);
-                      }
+                      if (selectedModel) handleGenerateForItem(selectedModel, 'padrao', 50);
                     }}
-                    disabled={!imageFile || uploadingImage}
-                    className="flex-1 rounded-xl bg-gradient-to-r from-violet-600 to-fuchsia-600 px-4 py-3 text-sm font-medium text-white shadow-lg shadow-violet-900/30 disabled:opacity-50 disabled:cursor-not-allowed transition hover:from-violet-700 hover:to-fuchsia-700"
+                    className="relative w-full overflow-hidden rounded-xl border border-violet-500/40 bg-gradient-to-r from-violet-600/80 to-fuchsia-600/80 px-5 py-3.5 text-sm font-semibold text-white shadow-lg shadow-violet-900/40 backdrop-blur-sm transition-all duration-200 hover:from-violet-600 hover:to-fuchsia-600 hover:shadow-violet-500/50 hover:shadow-xl disabled:opacity-50 disabled:cursor-not-allowed"
                   >
                     {uploadingImage ? (
                       <span className="flex items-center justify-center gap-2">
@@ -1162,8 +1153,42 @@ export function MirageExploreClient({
                         Gerando...
                       </span>
                     ) : (
-                      'Gerar Vídeo'
+                      <span className="flex items-center justify-center gap-2">
+                        <Sparkles className="h-4 w-4" />
+                        Gerar Vídeo (50 💎)
+                      </span>
                     )}
+                  </button>
+
+                  {/* Botão Estendido Premium */}
+                  <button
+                    type="button"
+                    disabled={uploadingImage}
+                    onClick={() => {
+                      if (selectedModel) handleGenerateForItem(selectedModel, 'estendido', 100);
+                    }}
+                    className="relative w-full overflow-hidden rounded-xl border border-amber-400/60 bg-gradient-to-r from-amber-500/20 to-yellow-500/20 px-5 py-3.5 text-sm font-semibold text-amber-200 shadow-lg shadow-amber-900/30 backdrop-blur-sm transition-all duration-200 hover:border-amber-400/90 hover:from-amber-500/35 hover:to-yellow-500/35 hover:shadow-amber-500/40 hover:shadow-xl disabled:opacity-50 disabled:cursor-not-allowed"
+                    style={{ boxShadow: '0 0 20px rgba(251,191,36,0.15), 0 4px 16px rgba(0,0,0,0.4)' }}
+                  >
+                    {uploadingImage ? (
+                      <span className="flex items-center justify-center gap-2">
+                        <LoaderCircle className="h-4 w-4 animate-spin" />
+                        Gerando...
+                      </span>
+                    ) : (
+                      <span className="flex items-center justify-center gap-2">
+                        <Gem className="h-4 w-4 text-amber-300" />
+                        Geração Estendida (100 💎)
+                      </span>
+                    )}
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => setUploadModalOpen(false)}
+                    className="w-full rounded-xl border border-[rgba(147,112,219,0.2)] bg-zinc-900/30 px-4 py-2.5 text-sm font-medium text-zinc-400 hover:bg-zinc-800/50 hover:text-zinc-200 transition backdrop-blur-sm"
+                  >
+                    Cancelar
                   </button>
                 </div>
               </div>
