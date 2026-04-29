@@ -1,3 +1,5 @@
+export const revalidate = 0;
+
 import { DarkAppHeader } from "@/components/DarkAppHeader";
 import { MirageExploreClient } from "@/components/mirage/MirageExploreClient";
 import { VideosLoadProbe } from "@/components/mirage/VideosLoadProbe";
