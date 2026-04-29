@@ -10,10 +10,10 @@ export async function VideosLoadProbe() {
     return null;
   }
   const { data, error } = await sb
-    .from("videos")
+    .from("videos" as any)
     .select("id, title, video_url, thumbnail_url, prompt")
-    .order("id", { ascending: false })
-    .limit(500);
+    .eq("is_published", true)
+    .order("id", { ascending: false });
   if (error) {
     console.log("Vídeos carregados:", data ?? null);
     console.error("[VideosLoadProbe] videos query:", error.message);

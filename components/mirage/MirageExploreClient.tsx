@@ -366,11 +366,46 @@ export function MirageExploreClient({
       if (!isSupabaseConfigured()) return;
       if (item.type !== "video") return;
       
-      // Abrir modal de upload em vez de redirecionar
-      setSelectedModel(item);
-      setUploadModalOpen(true);
+      try {
+        const {
+          data: { user },
+        } = await supabase.auth.getUser();
+        
+        if (!user) {
+          router.push(`/login?next=${encodeURIComponent(pathname)}`);
+          return;
+        }
+
+        // Chamar RPC process_video_generation
+        const { data, error } = await supabase.rpc('process_video_generation' as any, {
+          p_user_id: user.id,
+          p_video_id: item.id,
+          p_diamond_cost: 50
+        });
+
+        if (error) {
+          console.error('Erro ao processar geração:', error);
+          alert('Erro ao processar geração. Tente novamente.');
+          return;
+        }
+
+        const responseData = data as any[];
+        if (!responseData || !responseData[0]?.success) {
+          console.error('Resposta inválida da RPC:', responseData);
+          alert('Erro ao processar geração. Tente novamente.');
+          return;
+        }
+
+        // Redirecionar para /minha-geracao?session=${id}
+        const sessionId = responseData[0].session_id || responseData[0].id;
+        router.push(`/minha-geracao?session=${sessionId}`);
+        
+      } catch (err) {
+        console.error('Erro no fluxo de geração:', err);
+        alert('Erro ao processar geração. Tente novamente.');
+      }
     },
-    [],
+    [router, pathname],
   );
 
   // Função para fazer upload da imagem para o admin
