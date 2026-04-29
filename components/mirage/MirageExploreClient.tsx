@@ -627,17 +627,13 @@ export function MirageExploreClient({
   );
 
   useEffect(() => {
-    if (!explorePagination) {
-      // Home: exibe todos os vídeos carregados, sem paginação visual
-      setVisibleCount(Math.max(filtered.length, 0));
-    } else {
-      setVisibleCount(Math.min(sliceBatch, Math.max(filtered.length, 0)));
-    }
-  }, [filtered, sliceBatch, explorePagination]);
+    setVisibleCount(Math.min(sliceBatch, Math.max(filtered.length, 0)));
+  }, [filtered, sliceBatch]);
 
+  // Home: exibe TODOS os vídeos sem slice. /explore usa paginação visual.
   const displayed = useMemo(
-    () => filtered.slice(0, visibleCount),
-    [filtered, visibleCount],
+    () => explorePagination ? filtered.slice(0, visibleCount) : filtered,
+    [filtered, visibleCount, explorePagination],
   );
 
   const sentinelRef = useRef<HTMLDivElement>(null);
