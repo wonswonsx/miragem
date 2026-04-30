@@ -1,325 +1,249 @@
-"use client"
+"use client";
 
-import { useState, useEffect } from "react"
-import { createClient } from "@/lib/supabase/client"
-import Image from "next/image"
-import { LoaderCircle, Download, Play, Gem } from "lucide-react"
-import Link from "next/link"
+import { useState, useEffect } from "react";
+import { createClient } from "@/lib/supabase/client";
+import { LoaderCircle, ArrowLeft, Download, Clock, CheckCircle2, AlertTriangle, Sparkles } from "lucide-react";
+import Link from "next/link";
+import { useRouter } from "next/navigation";
+import { DarkAppHeader } from "@/components/DarkAppHeader";
 
 interface Generation {
-  id: string
-  user_id: string
-  image_url: string
-  video_url?: string
-  status: 'pending' | 'processing' | 'completed' | 'failed'
-  diamond_cost: number
-  created_at: string
-  completed_at?: string
+  id: string;
+  user_id: string;
+  video_id: string;
+  status: string;
+  created_at: string;
+  video_url?: string | null;
+  thumbnail_url?: string | null;
+  diamond_cost?: number;
+  mode?: string;
+}
+
+function statusConfig(status: string) {
+  switch (status) {
+    case 'concluido':
+    case 'completed':
+      return { label: 'Concluído', icon: CheckCircle2, color: 'text-green-400', bg: 'bg-green-500/10 border-green-500/30' };
+    case 'processando':
+    case 'processing':
+      return { label: 'Processando', icon: LoaderCircle, color: 'text-blue-400', bg: 'bg-blue-500/10 border-blue-500/30', spin: true };
+    case 'falhou':
+    case 'failed':
+      return { label: 'Falhou', icon: AlertTriangle, color: 'text-red-400', bg: 'bg-red-500/10 border-red-500/30' };
+    default:
+      return { label: 'Pendente', icon: Clock, color: 'text-yellow-400', bg: 'bg-yellow-500/10 border-yellow-500/30' };
+  }
 }
 
 export default function MinhasGeracoesPage() {
-  const [generations, setGenerations] = useState<Generation[]>([])
-  const [loading, setLoading] = useState(true)
-  const [user, setUser] = useState<any>(null)
-  const [userDiamonds, setUserDiamonds] = useState<number>(0)
+  const router = useRouter();
+  const [generations, setGenerations] = useState<Generation[]>([]);
+  const [loading, setLoading] = useState(true);
 
-  // Buscar usuário atual e diamantes
   useEffect(() => {
-    const fetchUser = async () => {
-      const sb = createClient()
-      const { data: { user } } = await sb.auth.getUser()
-      setUser(user)
+    const load = async () => {
+      const sb = createClient();
+      const { data: { user } } = await sb.auth.getUser();
 
-      if (user) {
-        // Simulação de saldo de diamantes por enquanto
-        setUserDiamonds(289)
+      if (!user) {
+        router.push('/login');
+        return;
       }
-    }
-    fetchUser()
-  }, [])
 
-  // Buscar gerações do usuário
-  useEffect(() => {
-    if (!user) return
+      const { data, error } = await sb
+        .from('generations' as any)
+        .select('*')
+        .eq('user_id', user.id)
+        .order('created_at', { ascending: false });
 
-    const fetchGenerations = async () => {
-      try {
-        const sb = createClient()
-        // Simulação por enquanto - vamos mostrar dados mock
-        const mockData: Generation[] = [
-          {
-            id: '1',
-            user_id: user.id,
-            image_url: 'https://via.placeholder.com/400x600/9333ea/ffffff?text=Processing...',
-            status: 'pending',
-            diamond_cost: 50,
-            created_at: new Date().toISOString()
+      if (error) {
+        console.error('Erro ao buscar gerações:', error);
+      } else {
+        setGenerations((data as unknown as Generation[]) ?? []);
+      }
+      setLoading(false);
+
+      // Realtime: escutar mudanças nas gerações do usuário
+      const channel = sb
+        .channel('my-generations')
+        .on(
+          'postgres_changes',
+          { event: '*', schema: 'public', table: 'generations', filter: `user_id=eq.${user.id}` },
+          () => {
+            sb.from('generations' as any)
+              .select('*')
+              .eq('user_id', user.id)
+              .order('created_at', { ascending: false })
+              .then(({ data: fresh }) => {
+                if (fresh) setGenerations(fresh as unknown as Generation[]);
+              });
           }
-        ]
-        setGenerations(mockData)
-      } catch (err) {
-        console.error('Erro ao buscar gerações:', err)
-      } finally {
-        setLoading(false)
-      }
-    }
+        )
+        .subscribe();
 
-    fetchGenerations()
-  }, [user])
+      return () => { sb.removeChannel(channel); };
+    };
 
-  // Setup real-time updates (simplificado)
-  useEffect(() => {
-    if (!user) return
+    load();
+  }, [router]);
 
-    // Simulação de atualização em tempo real por enquanto
-    const interval = setInterval(() => {
-      // Aqui vamos implementar polling depois
-      console.log('Verificando atualizações...')
-    }, 5000)
-
-    return () => {
-      clearInterval(interval)
-    }
-  }, [user])
-
+  // ── Loading ──
   if (loading) {
     return (
-      <div className="min-h-screen bg-gradient-to-br from-[#0f0614] via-[#1a0a24] to-[#120818] flex items-center justify-center">
-        <div className="text-center">
-          <div className="relative mb-4">
-            <LoaderCircle className="h-12 w-12 animate-spin text-violet-400 mx-auto" />
-            <div className="absolute inset-0 h-12 w-12 animate-ping bg-violet-400/20 rounded-full" />
-          </div>
-          <p className="text-zinc-400">Carregando suas gerações...</p>
+      <div className="min-h-screen bg-gradient-to-br from-[#0f0614] via-[#1a0a24] to-[#120818]">
+        <DarkAppHeader />
+        <div className="flex items-center justify-center pt-[200px]">
+          <LoaderCircle className="h-10 w-10 animate-spin text-violet-400" />
         </div>
       </div>
-    )
-  }
-
-  if (!user) {
-    return (
-      <div className="min-h-screen bg-gradient-to-br from-[#0f0614] via-[#1a0a24] to-[#120818] flex items-center justify-center">
-        <div className="text-center">
-          <div className="w-24 h-24 bg-gradient-to-br from-violet-600/20 to-fuchsia-600/20 rounded-full flex items-center justify-center mx-auto mb-6">
-            <Play className="h-12 w-12 text-violet-400" />
-          </div>
-          <h2 className="text-2xl font-semibold text-white mb-2">Faça login para continuar</h2>
-          <p className="text-zinc-400 mb-6">
-            Acesse sua conta para ver suas gerações de vídeo
-          </p>
-          <Link 
-            href="/login"
-            className="inline-flex items-center px-6 py-3 bg-gradient-to-r from-violet-600 to-fuchsia-600 text-white rounded-lg font-medium hover:from-violet-700 hover:to-fuchsia-700 transition"
-          >
-            Fazer Login
-          </Link>
-        </div>
-      </div>
-    )
+    );
   }
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-[#0f0614] via-[#1a0a24] to-[#120818]">
-      <div className="container mx-auto px-4 py-8">
+    <div className="min-h-screen bg-gradient-to-br from-[#0f0614] via-[#1a0a24] to-[#120818] text-[#e8e0f0]">
+      {/* Fundo decorativo */}
+      <div
+        className="pointer-events-none fixed inset-0 -z-10"
+        style={{
+          background: `
+            radial-gradient(ellipse 80% 50% at 50% -20%, rgba(147,112,219,0.18), transparent),
+            radial-gradient(ellipse 60% 80% at 100% 50%, rgba(138,43,226,0.10), transparent),
+            linear-gradient(180deg, #0f0614 0%, #1a0a24 30%, #120818 100%)`,
+        }}
+        aria-hidden
+      />
+
+      <DarkAppHeader />
+
+      <main className="mx-auto max-w-5xl px-4 pt-[132px] pb-20 sm:pt-[110px]">
         {/* Header */}
-        <div className="mb-8">
-          <h1 className="text-4xl font-bold text-white mb-2">Minhas Gerações</h1>
-          <p className="text-zinc-400">Acompanhe o status dos seus vídeos gerados por IA</p>
-          
-          {/* Saldo de Diamantes */}
-          <div className="mt-4 inline-flex items-center gap-2 px-4 py-2 bg-gradient-to-r from-amber-500/20 to-amber-600/20 border border-amber-500/30 rounded-lg">
-            <Gem className="h-5 w-5 text-amber-400" />
-            <span className="text-amber-300 font-medium">{userDiamonds} diamantes</span>
-          </div>
-        </div>
-
-        {generations.length === 0 ? (
-          <div className="text-center py-16">
-            <div className="max-w-md mx-auto">
-              <div className="w-24 h-24 bg-gradient-to-br from-violet-600/20 to-fuchsia-600/20 rounded-full flex items-center justify-center mx-auto mb-6">
-                <Play className="h-12 w-12 text-violet-400" />
-              </div>
-              <h2 className="text-2xl font-semibold text-white mb-2">Nenhuma geração ainda</h2>
-              <p className="text-zinc-400 mb-6">
-                Comece gerando seus vídeos personalizados com IA por apenas 50 diamantes
-              </p>
-              <Link 
-                href="/"
-                className="inline-flex items-center px-6 py-3 bg-gradient-to-r from-violet-600 to-fuchsia-600 text-white rounded-lg font-medium hover:from-violet-700 hover:to-fuchsia-700 transition"
-              >
-                Gerar Meu Primeiro Vídeo
-              </Link>
-            </div>
-          </div>
-        ) : (
-          <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3">
-            {generations.map((generation) => (
-              <GenerationCard key={generation.id} generation={generation} />
-            ))}
-          </div>
-        )}
-      </div>
-    </div>
-  )
-}
-
-function GenerationCard({ generation }: { generation: Generation }) {
-  const [imageError, setImageError] = useState(false)
-
-  const getStatusColor = (status: string) => {
-    switch (status) {
-      case 'pending':
-        return 'bg-amber-500/20 text-amber-300 border-amber-500/30'
-      case 'processing':
-        return 'bg-blue-500/20 text-blue-300 border-blue-500/30'
-      case 'completed':
-        return 'bg-green-500/20 text-green-300 border-green-500/30'
-      case 'failed':
-        return 'bg-red-500/20 text-red-300 border-red-500/30'
-      default:
-        return 'bg-zinc-500/20 text-zinc-300 border-zinc-500/30'
-    }
-  }
-
-  const getStatusText = (status: string) => {
-    switch (status) {
-      case 'pending':
-        return 'Aguardando processamento'
-      case 'processing':
-        return 'Processando seu vídeo...'
-      case 'completed':
-        return 'Vídeo pronto!'
-      case 'failed':
-        return 'Falha na geração'
-      default:
-        return status
-    }
-  }
-
-  const getStatusIcon = (status: string) => {
-    switch (status) {
-      case 'completed':
-        return <Download className="h-4 w-4" />
-      default:
-        return <LoaderCircle className="h-4 w-4 animate-spin" />
-    }
-  }
-
-  return (
-    <div className="relative group">
-      <div className="aspect-[9/16] w-full overflow-hidden rounded-xl border border-[rgba(147,112,219,0.3)] bg-black">
-        {generation.status === 'completed' && generation.video_url ? (
-          // Vídeo pronto - mostrar player
-          <video
-            src={generation.video_url}
-            className="h-full w-full object-cover"
-            controls
-            muted
-            loop
-            playsInline
-            autoPlay
-            poster={generation.image_url}
-          />
-        ) : (
-          // Imagem com blur para pending/processing + loading animation
-          <div className="relative h-full w-full">
-            {!imageError ? (
-              <Image
-                src={generation.image_url}
-                alt="Sua geração"
-                fill
-                className={`object-cover ${generation.status === 'pending' || generation.status === 'processing' ? 'blur-xl' : ''}`}
-                onError={() => setImageError(true)}
-                sizes="(max-width: 768px) 100vw, (max-width: 1200px) 50vw, 33vw"
-              />
-            ) : (
-              <div className="h-full w-full bg-gradient-to-br from-violet-900/20 to-fuchsia-900/20 flex items-center justify-center">
-                <div className="text-center">
-                  <div className="w-16 h-16 bg-red-500/20 rounded-full flex items-center justify-center mx-auto mb-2">
-                    <span className="text-red-400 text-2xl">⚠️</span>
-                  </div>
-                  <p className="text-zinc-400 text-sm">Erro ao carregar imagem</p>
-                </div>
-              </div>
-            )}
-            
-            {/* Overlay de loading bonito para pending/processing */}
-            {(generation.status === 'pending' || generation.status === 'processing') && (
-              <div className="absolute inset-0 flex flex-col items-center justify-center bg-black/60 backdrop-blur-sm">
-                {/* Shimmer Effect */}
-                <div className="absolute inset-0 overflow-hidden">
-                  <div className="shimmer absolute inset-0 -translate-x-full animate-[shimmer_2s_infinite] bg-gradient-to-r from-transparent via-white/10 to-transparent" />
-                </div>
-                
-                {/* Loading Animation */}
-                <div className="relative mb-6">
-                  <div className="relative">
-                    <LoaderCircle className="h-14 w-14 animate-spin text-violet-400" />
-                    <div className="absolute inset-0 h-14 w-14 animate-ping bg-violet-400/20 rounded-full" />
-                    <div className="absolute inset-0 h-14 w-14 animate-pulse bg-violet-400/10 rounded-full" />
-                  </div>
-                  
-                  {/* Wave Effect */}
-                  <div className="absolute -inset-4">
-                    <div className="h-full w-full rounded-full border-2 border-violet-400/30 animate-pulse" />
-                  </div>
-                </div>
-                
-                <div className="text-center z-10">
-                  <p className="text-white text-xl font-semibold mb-3">
-                    Processando seu vídeo...
-                  </p>
-                  <p className="text-zinc-300 text-sm max-w-xs px-4 mb-4">
-                    A equipe está gerando seu vídeo personalizado com IA. Isso pode levar alguns minutos.
-                  </p>
-                  
-                  {/* Custo em diamantes */}
-                  <div className="inline-flex items-center gap-2 px-3 py-1.5 bg-amber-500/20 border border-amber-500/30 rounded-full">
-                    <Gem className="h-4 w-4 text-amber-400" />
-                    <span className="text-amber-300 text-sm font-medium">
-                      Custo: {generation.diamond_cost} diamantes
-                    </span>
-                  </div>
-                </div>
-              </div>
-            )}
-          </div>
-        )}
-      </div>
-
-      {/* Status Badge */}
-      <div className="absolute top-3 right-3">
-        <div className={`px-3 py-1 rounded-full text-xs font-medium border flex items-center gap-1 ${getStatusColor(generation.status)}`}>
-          {getStatusIcon(generation.status)}
-          {getStatusText(generation.status)}
-        </div>
-      </div>
-
-      {/* Download Button para completed */}
-      {generation.status === 'completed' && generation.video_url && (
-        <div className="absolute bottom-3 left-3 right-3 opacity-0 group-hover:opacity-100 transition-opacity">
-          <a
-            href={generation.video_url}
-            download
-            className="w-full bg-gradient-to-r from-green-500 to-emerald-600 text-white rounded-lg px-4 py-2 text-sm font-medium flex items-center justify-center gap-2 hover:from-green-600 hover:to-emerald-700 transition"
+        <div className="mb-10 flex items-center gap-4">
+          <Link
+            href="/"
+            className="inline-flex items-center gap-1.5 rounded-lg border border-[rgba(147,112,219,0.25)] bg-[rgba(15,10,24,0.6)] px-3 py-1.5 text-sm text-zinc-400 backdrop-blur transition hover:border-violet-500/50 hover:text-zinc-200"
           >
-            <Download className="h-4 w-4" />
-            Baixar Meu Vídeo
-          </a>
+            <ArrowLeft className="h-3.5 w-3.5" />
+            Voltar
+          </Link>
+          <h1 className="text-2xl font-bold tracking-tight text-white sm:text-3xl">
+            Minhas Gerações
+          </h1>
         </div>
-      )}
 
-      {/* Info */}
-      <div className="mt-3">
-        <p className="text-zinc-400 text-xs">
-          Criado em {new Date(generation.created_at).toLocaleDateString('pt-BR')}
-        </p>
-        {generation.completed_at && (
-          <p className="text-zinc-400 text-xs">
-            Concluído em {new Date(generation.completed_at).toLocaleDateString('pt-BR')}
-          </p>
+        {/* Lista vazia */}
+        {generations.length === 0 ? (
+          <div className="flex flex-col items-center justify-center rounded-2xl border border-[rgba(147,112,219,0.2)] bg-[rgba(15,10,24,0.5)] px-6 py-20 text-center backdrop-blur-md">
+            <Sparkles className="mb-4 h-12 w-12 text-violet-400/60" />
+            <h2 className="mb-2 text-lg font-semibold text-white">Nenhuma geração ainda</h2>
+            <p className="mb-6 max-w-sm text-sm text-zinc-400">
+              Escolha um vídeo na página inicial e clique em <strong className="text-violet-300">Gerar</strong> para solicitar a sua primeira geração!
+            </p>
+            <Link
+              href="/"
+              className="rounded-xl bg-gradient-to-r from-violet-600 to-fuchsia-600 px-6 py-2.5 text-sm font-medium text-white transition hover:from-violet-700 hover:to-fuchsia-700"
+            >
+              Explorar Vídeos
+            </Link>
+          </div>
+        ) : (
+          <div className="grid gap-5 sm:grid-cols-2 lg:grid-cols-3">
+            {generations.map((gen) => {
+              const cfg = statusConfig(gen.status);
+              const StatusIcon = cfg.icon;
+              const isPending = gen.status === 'pendente' || gen.status === 'pending';
+              const isCompleted = gen.status === 'concluido' || gen.status === 'completed';
+
+              return (
+                <div
+                  key={gen.id}
+                  className="group relative overflow-hidden rounded-2xl border border-[rgba(147,112,219,0.2)] bg-[rgba(15,10,24,0.55)] backdrop-blur-md transition-all duration-300 hover:border-violet-500/40 hover:shadow-[0_0_30px_rgba(147,112,219,0.12)]"
+                >
+                  {/* Preview area */}
+                  <div className="relative aspect-video w-full overflow-hidden bg-black/40">
+                    {isCompleted && gen.video_url ? (
+                      <video
+                        src={gen.video_url}
+                        className="h-full w-full object-cover"
+                        muted
+                        loop
+                        playsInline
+                        autoPlay
+                        controls
+                      />
+                    ) : (
+                      <div className="flex h-full w-full flex-col items-center justify-center gap-3 bg-gradient-to-br from-violet-900/20 to-fuchsia-900/20 p-6">
+                        {isPending ? (
+                          <>
+                            <div className="relative">
+                              <div className="h-16 w-16 animate-pulse rounded-full border-2 border-violet-500/40 bg-violet-500/10" />
+                              <LoaderCircle className="absolute inset-0 m-auto h-8 w-8 animate-spin text-violet-400" />
+                            </div>
+                            <p className="text-center text-sm font-medium text-violet-200">
+                              Seu vídeo está sendo preparado pelos nossos editores!
+                            </p>
+                            <p className="text-center text-xs text-zinc-500">
+                              Fique tranquilo, avisaremos quando estiver pronto.
+                            </p>
+                          </>
+                        ) : (
+                          <>
+                            <StatusIcon className={`h-8 w-8 ${cfg.color} ${cfg.spin ? 'animate-spin' : ''}`} />
+                            <p className={`text-sm font-medium ${cfg.color}`}>{cfg.label}</p>
+                          </>
+                        )}
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Info */}
+                  <div className="space-y-3 p-4">
+                    {/* Status badge */}
+                    <div className="flex items-center justify-between">
+                      <span className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs font-medium ${cfg.bg} ${cfg.color}`}>
+                        <StatusIcon className={`h-3 w-3 ${cfg.spin ? 'animate-spin' : ''}`} />
+                        {cfg.label}
+                      </span>
+                      <span className="text-xs text-zinc-500">
+                        {new Date(gen.created_at).toLocaleDateString('pt-BR', {
+                          day: '2-digit',
+                          month: '2-digit',
+                          year: '2-digit',
+                          hour: '2-digit',
+                          minute: '2-digit',
+                        })}
+                      </span>
+                    </div>
+
+                    {/* Modo + Custo */}
+                    {gen.diamond_cost && (
+                      <p className="text-xs text-violet-400">
+                        {gen.mode === 'estendido' ? 'Estendida' : 'Padrão'} · {gen.diamond_cost} 💎
+                      </p>
+                    )}
+
+                    {/* Download */}
+                    {isCompleted && gen.video_url && (
+                      <a
+                        href={gen.video_url}
+                        download
+                        className="flex w-full items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-green-500 to-emerald-600 px-3 py-2 text-sm font-medium text-white transition hover:from-green-600 hover:to-emerald-700"
+                      >
+                        <Download className="h-3.5 w-3.5" />
+                        Baixar Vídeo
+                      </a>
+                    )}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
         )}
-      </div>
+      </main>
+
+      {/* Footer */}
+      <footer className="border-t border-[rgba(147,112,219,0.1)] bg-[rgba(15,6,20,0.8)] py-6 text-center text-xs text-zinc-500">
+        © {new Date().getFullYear()} Miragem Fantasia. Todos os direitos reservados.
+      </footer>
     </div>
-  )
+  );
 }

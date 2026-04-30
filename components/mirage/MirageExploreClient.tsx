@@ -432,7 +432,7 @@ export function MirageExploreClient({
         // Redirecionar após breve delay para o toast ser lido
         setTimeout(() => {
           setUploadModalOpen(false);
-          router.push('/minha-geracao');
+          router.push('/minhas-geracoes');
         }, 1200);
 
       } catch (err) {
