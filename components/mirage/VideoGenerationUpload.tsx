@@ -235,16 +235,18 @@ export function VideoGenerationUpload({ userId, onGenerateComplete }: VideoGener
         );
       }
 
-      // 2. Upload da imagem para bucket 'imagens'
-      const fileName = `imagens/${userId}/${Date.now()}-${selectedFile.name}`;
+      // 2. Upload para bucket 'imagens'
+      const fileName = `${userId}/${Date.now()}-${selectedFile.name}`;
       const { error: uploadError } = await sb.storage
         .from('imagens')
         .upload(fileName, selectedFile, {
           cacheControl: '3600',
           upsert: false,
+          contentType: selectedFile.type,
         });
 
       if (uploadError) {
+        console.error('Erro no upload:', uploadError);
         throw uploadError;
       }
 
