@@ -198,6 +198,10 @@ export function VideoGenerationUpload({ userId, onGenerateComplete }: VideoGener
   }, []);
 
   const handleGenerateVideo = useCallback(async (mode: 'padrao' | 'estendido' = 'padrao', cost: number = 50) => {
+    // Limpar estados anteriores imediatamente
+    setError(null);
+    setUploadProgress(0);
+
     console.log('>>> DISPARANDO GERAÇÃO:', { tipo: mode, diamantes: cost, arquivo: selectedFile?.name ?? 'nenhum', userId });
 
     if (!userId) {
@@ -210,7 +214,6 @@ export function VideoGenerationUpload({ userId, onGenerateComplete }: VideoGener
       return;
     }
     setStatus('uploading');
-    setError(null);
 
     try {
       const sb = createClient();
