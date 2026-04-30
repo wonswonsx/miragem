@@ -256,17 +256,28 @@ export function VideoGenerationUpload({ userId, onGenerateComplete }: VideoGener
         .getPublicUrl(fileName);
 
       // 4. Registrar transação de diamantes
-      await sb
-        .from('diamond_transactions')
+      const { error: txErr } = await sb
+        .from('transactions' as any)
         .insert({
-          delta: -cost,
-          type: 'generation',
           user_id: userId,
-          created_at: new Date().toISOString()
-        })
-        .then(({ error: txErr }) => {
-          if (txErr) console.error('Erro ao registrar transação:', txErr);
+          amount: -cost,
+          type: mode === 'estendido' ? 'generation_extended' : 'generation',
+          description: `Geração de vídeo ${mode === 'estendido' ? 'estendida' : 'padrão'} (${cost} 💎)`,
         });
+
+      if (txErr) {
+        console.error('Erro Supabase (transactions):', txErr);
+      }
+
+      // 4b. Atualizar saldo na tabela profiles
+      const { error: profileErr } = await sb.rpc('debit_diamonds' as any, {
+        user_id_param: userId,
+        amount_param: cost,
+      });
+
+      if (profileErr) {
+        console.error('Erro Supabase (profiles debit):', profileErr);
+      }
 
       // 5. Criar registro em generations
       const { error: generationError, data: generationData } = await sb
