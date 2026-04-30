@@ -1,7 +1,7 @@
 "use client";
 
 import { LoaderCircle, Upload, X, Download, Sparkles, Gem } from "lucide-react";
-import { useState, useCallback } from "react";
+import { useState, useCallback, useRef } from "react";
 import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 
@@ -22,6 +22,7 @@ export function VideoGenerationUpload({ userId, onGenerateComplete }: VideoGener
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const router = useRouter();
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   const handleFileUpload = useCallback(async (file: File) => {
     if (!userId) {
@@ -396,13 +397,15 @@ export function VideoGenerationUpload({ userId, onGenerateComplete }: VideoGener
         <div
           onDrop={handleDrop}
           onDragOver={handleDragOver}
-          className="h-56 w-64 relative overflow-hidden rounded-xl border-2 border-dashed border-zinc-700 bg-zinc-900/50 transition hover:border-zinc-600 hover:bg-zinc-900/70"
+          onClick={() => fileInputRef.current?.click()}
+          className="h-56 w-64 relative overflow-hidden rounded-xl border-2 border-dashed border-zinc-700 bg-zinc-900/50 cursor-pointer transition-all duration-200 hover:border-violet-500/50 hover:bg-white/5 hover:shadow-[0_0_20px_rgba(147,112,219,0.1)]"
         >
           <input
+            ref={fileInputRef}
             type="file"
             accept="image/png, image/jpeg, image/jpg, image/gif"
             onChange={handleFileSelect}
-            className="absolute inset-0 h-full w-full cursor-pointer opacity-0"
+            className="hidden"
           />
           
           {status === 'uploading' ? (
