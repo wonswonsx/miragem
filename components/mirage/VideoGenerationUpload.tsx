@@ -215,32 +215,40 @@ export function VideoGenerationUpload({ userId, onGenerateComplete }: VideoGener
     try {
       const sb = createClient();
 
-      // 1. Verificar e debitar diamantes atomicamente via RPC
-      const { data: debitResult, error: debitError } = await sb
-        .rpc('check_and_debit_diamonds' as any, {
-          user_id_param: userId,
-          cost_param: cost,
-        });
+      // 1. Buscar saldo atual de diamantes
+      const { data: profile, error: profileFetchErr } = await sb
+        .from('profiles')
+        .select('diamonds')
+        .eq('id', userId)
+        .single();
+
+      if (profileFetchErr) {
+        console.error('Erro ao buscar perfil:', profileFetchErr);
+        throw new Error('Erro ao verificar saldo: ' + profileFetchErr.message);
+      }
+
+      const currentDiamonds = (profile as any)?.diamonds ?? 0;
+      console.log('Saldo atual:', currentDiamonds, '| Custo:', cost);
+
+      if (currentDiamonds < cost) {
+        throw new Error(`Diamantes insuficientes. Você tem ${currentDiamonds} 💎 e precisa de ${cost} 💎.`);
+      }
+
+      // 2. Debitar diamantes (update direto)
+      const novoSaldo = currentDiamonds - cost;
+      const { error: debitError } = await sb
+        .from('profiles')
+        .update({ diamonds: novoSaldo })
+        .eq('id', userId);
 
       if (debitError) {
-        console.error('Erro Supabase (check_and_debit_diamonds RPC):', JSON.stringify(debitError, null, 2));
-        throw new Error(`Erro ao debitar diamantes: ${debitError.message || JSON.stringify(debitError)}`);
+        console.error('Erro real no Supabase (debit):', debitError);
+        throw new Error('Falha ao debitar: ' + debitError.message);
       }
 
-      console.log('Resultado do débito:', JSON.stringify(debitResult, null, 2));
+      console.log('Débito OK. Novo saldo:', novoSaldo);
 
-      const debit = Array.isArray(debitResult) ? debitResult[0] : debitResult;
-      if (!debit?.success) {
-        const msg = debit?.message ?? 'Resposta inesperada do servidor';
-        console.error('Débito falhou:', { debit, msg });
-        throw new Error(
-          msg === 'Saldo insuficiente'
-            ? `Diamantes insuficientes. Você precisa de ${cost} 💎.`
-            : msg,
-        );
-      }
-
-      // 2. Upload para bucket 'imagens'
+      // 3. Upload para bucket 'imagens'
       const fileName = `${userId}/${Date.now()}-${selectedFile.name}`;
       const { error: uploadError } = await sb.storage
         .from('imagens')
@@ -255,51 +263,40 @@ export function VideoGenerationUpload({ userId, onGenerateComplete }: VideoGener
         throw uploadError;
       }
 
-      // 3. Obter URL pública
+      // 4. Obter URL pública
       const { data: { publicUrl } } = sb.storage
         .from('imagens')
         .getPublicUrl(fileName);
 
-      // 4. Registrar transação de diamantes
-      const { error: txErr } = await sb
-        .from('transactions' as any)
+      // 5. Registrar transação (log, não bloqueia)
+      sb.from('transactions' as any)
         .insert({
           user_id: userId,
           amount: -cost,
           type: mode === 'estendido' ? 'generation_extended' : 'generation',
           description: `Geração de vídeo ${mode === 'estendido' ? 'estendida' : 'padrão'} (${cost} 💎)`,
+        })
+        .then(({ error: txErr }) => {
+          if (txErr) console.error('Erro Supabase (transactions):', txErr);
         });
 
-      if (txErr) {
-        console.error('Erro Supabase (transactions):', txErr);
-      }
-
-      // 4b. Atualizar saldo na tabela profiles
-      const { error: profileErr } = await sb.rpc('debit_diamonds' as any, {
-        user_id_param: userId,
-        amount_param: cost,
-      });
-
-      if (profileErr) {
-        console.error('Erro Supabase (profiles debit):', profileErr);
-      }
-
-      // 5. Criar registro em generations
-      const { error: generationError, data: generationData } = await sb
+      // 6. Criar registro em generations
+      const { error: generationError } = await sb
         .from('generations' as any)
         .insert({
           user_id: userId,
           image_url: publicUrl,
-          status: 'pending',
+          status: 'processing',
           mode: mode,
           diamond_cost: cost,
-        })
-        .select('id')
-        .single();
+        });
 
       if (generationError) {
-        console.error('Erro ao criar registro:', generationError);
+        console.error('Erro ao criar geração:', generationError);
+        throw new Error('Erro ao registrar geração: ' + generationError.message);
       }
+
+      const generationData = null;
 
       // 6. Salvar preview no localStorage
       const reader = new FileReader();
@@ -316,7 +313,7 @@ export function VideoGenerationUpload({ userId, onGenerateComplete }: VideoGener
 
       setUploadProgress(100);
 
-      console.log('Geração criada:', { mode, cost, saldo_restante: debit?.diamonds_after });
+      console.log('Geração criada:', { mode, cost, saldo_restante: novoSaldo });
 
       // 7. Redirecionar para /minhas-geracoes após sucesso
       setTimeout(() => {
