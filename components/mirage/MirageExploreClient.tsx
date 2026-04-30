@@ -312,15 +312,15 @@ function videoRowToMediaItem(row: VideoRow, index: number): MediaItem | null {
 
 
 function ExploreDetailModalActions({
-  loggedIn,
+  userId,
   className,
 }: {
-  loggedIn: boolean;
+  userId: string | null;
   className?: string;
 }) {
   return (
     <div className={className}>
-      <VideoGenerationUpload userId={loggedIn ? null : null} />
+      <VideoGenerationUpload userId={userId} />
     </div>
   );
 }
@@ -1094,7 +1094,7 @@ export function MirageExploreClient({
               {/* Lado Direito - Upload e Ação */}
               <div className="flex flex-col h-full">
                 <div className="flex-1">
-                  <VideoGenerationUpload userId={loggedIn ? null : null} />
+                  <VideoGenerationUpload userId={userId} />
                 </div>
               </div>
             </div>

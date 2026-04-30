@@ -198,8 +198,10 @@ export function VideoGenerationUpload({ userId, onGenerateComplete }: VideoGener
   }, []);
 
   const handleGenerateVideo = useCallback(async (mode: 'padrao' | 'estendido' = 'padrao', cost: number = 50) => {
+    console.log('>>> DISPARANDO GERAÇÃO:', { tipo: mode, diamantes: cost, arquivo: selectedFile?.name ?? 'nenhum', userId });
+
     if (!userId) {
-      setError('Usuário não autenticado');
+      setError('Usuário não autenticado. Faça login primeiro.');
       return;
     }
 
@@ -207,8 +209,6 @@ export function VideoGenerationUpload({ userId, onGenerateComplete }: VideoGener
       setError('Selecione uma imagem, GIF ou vídeo MP4 primeiro!');
       return;
     }
-
-    console.log('Botão clicado!', { mode, cost, file: selectedFile.name, type: selectedFile.type, size: selectedFile.size });
     setStatus('uploading');
     setError(null);
 
