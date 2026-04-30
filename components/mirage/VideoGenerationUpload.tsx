@@ -287,7 +287,7 @@ export function VideoGenerationUpload({ userId, onGenerateComplete }: VideoGener
           user_id: userId,
           image_url: publicUrl,
           status: 'processing',
-          mode: mode,
+          type: mode,
           diamond_cost: cost,
         });
 
@@ -296,29 +296,18 @@ export function VideoGenerationUpload({ userId, onGenerateComplete }: VideoGener
         throw new Error('Erro ao registrar geração: ' + generationError.message);
       }
 
-      const generationData = null;
-
-      // 6. Salvar preview no localStorage
-      const reader = new FileReader();
-      reader.onload = (e) => {
-        const previewUrl = e.target?.result as string;
-        localStorage.setItem('recentGenerationImage', previewUrl);
-        localStorage.setItem('recentGenerationFileName', selectedFile.name);
-        localStorage.setItem('recentGenerationTime', new Date().toISOString());
-        if (generationData && 'id' in (generationData as any)) {
-          localStorage.setItem('recentGenerationId', (generationData as any).id);
-        }
-      };
-      reader.readAsDataURL(selectedFile);
-
       setUploadProgress(100);
+      console.log('Geração criada com sucesso!', { mode, cost, saldo_restante: novoSaldo });
 
-      console.log('Geração criada:', { mode, cost, saldo_restante: novoSaldo });
+      // 7. Limpar estado
+      setSelectedFile(null);
+      setPreviewUrl(null);
+      setStatus('idle');
 
-      // 7. Redirecionar para /minhas-geracoes após sucesso
+      // 8. Redirecionar para /minhas-geracoes após breve delay
       setTimeout(() => {
         router.push('/minhas-geracoes');
-      }, 1500);
+      }, 500);
 
     } catch (err) {
       console.error('Erro na geração:', err);
