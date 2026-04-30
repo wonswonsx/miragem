@@ -30,8 +30,8 @@ export function VideoGenerationUpload({ userId, onGenerateComplete }: VideoGener
       return;
     }
 
-    if (!file.type.startsWith('image/')) {
-      setError('Por favor, envie uma imagem');
+    if (!file.type.startsWith('image/') && file.type !== 'video/mp4' && file.type !== 'video/quicktime') {
+      setError('Formato não suportado. Envie imagem (PNG, JPG, GIF) ou vídeo (MP4).');
       return;
     }
 
@@ -145,24 +145,28 @@ export function VideoGenerationUpload({ userId, onGenerateComplete }: VideoGener
     };
   };
 
+  const isAcceptedFile = (file: File) =>
+    file.type.startsWith('image/') || file.type === 'video/mp4' || file.type === 'video/quicktime';
+
   const handleDrop = useCallback((e: React.DragEvent<HTMLDivElement>) => {
     e.preventDefault();
     const file = e.dataTransfer.files[0];
     if (file) {
-      if (!file.type.startsWith('image/')) {
-        setError('Por favor, envie uma imagem');
+      if (!isAcceptedFile(file)) {
+        setError('Formato não suportado. Envie imagem (PNG, JPG, GIF) ou vídeo (MP4).');
         return;
       }
-      
+
       setSelectedFile(file);
-      
-      // Criar preview da imagem
-      const reader = new FileReader();
-      reader.onload = (e) => {
-        setPreviewUrl(e.target?.result as string);
-      };
-      reader.readAsDataURL(file);
-      
+
+      if (file.type.startsWith('video/')) {
+        setPreviewUrl(URL.createObjectURL(file));
+      } else {
+        const reader = new FileReader();
+        reader.onload = (ev) => setPreviewUrl(ev.target?.result as string);
+        reader.readAsDataURL(file);
+      }
+
       setError(null);
     }
   }, []);
@@ -174,20 +178,21 @@ export function VideoGenerationUpload({ userId, onGenerateComplete }: VideoGener
   const handleFileSelect = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (file) {
-      if (!file.type.startsWith('image/')) {
-        setError('Por favor, envie uma imagem');
+      if (!isAcceptedFile(file)) {
+        setError('Formato não suportado. Envie imagem (PNG, JPG, GIF) ou vídeo (MP4).');
         return;
       }
-      
+
       setSelectedFile(file);
-      
-      // Criar preview da imagem
-      const reader = new FileReader();
-      reader.onload = (e) => {
-        setPreviewUrl(e.target?.result as string);
-      };
-      reader.readAsDataURL(file);
-      
+
+      if (file.type.startsWith('video/')) {
+        setPreviewUrl(URL.createObjectURL(file));
+      } else {
+        const reader = new FileReader();
+        reader.onload = (ev) => setPreviewUrl(ev.target?.result as string);
+        reader.readAsDataURL(file);
+      }
+
       setError(null);
     }
   }, []);
@@ -199,11 +204,11 @@ export function VideoGenerationUpload({ userId, onGenerateComplete }: VideoGener
     }
 
     if (!selectedFile) {
-      setError('Selecione uma imagem ou GIF primeiro!');
+      setError('Selecione uma imagem, GIF ou vídeo MP4 primeiro!');
       return;
     }
 
-    console.log(`Botão Clicado! [${mode} ${cost}💎]`);
+    console.log('Botão clicado!', { mode, cost, file: selectedFile.name, type: selectedFile.type, size: selectedFile.size });
     setStatus('uploading');
     setError(null);
 
@@ -403,7 +408,7 @@ export function VideoGenerationUpload({ userId, onGenerateComplete }: VideoGener
           <input
             ref={fileInputRef}
             type="file"
-            accept="image/png, image/jpeg, image/jpg, image/gif"
+            accept="image/*,video/mp4,video/quicktime"
             onChange={handleFileSelect}
             className="hidden"
           />
@@ -421,18 +426,29 @@ export function VideoGenerationUpload({ userId, onGenerateComplete }: VideoGener
             </div>
           ) : previewUrl ? (
             <div className="absolute inset-0">
-              <img
-                src={previewUrl}
-                alt="Preview da imagem selecionada"
-                className="h-full w-full object-cover"
-              />
+              {selectedFile?.type.startsWith('video/') ? (
+                <video
+                  src={previewUrl}
+                  className="h-full w-full object-cover"
+                  muted
+                  loop
+                  autoPlay
+                  playsInline
+                />
+              ) : (
+                <img
+                  src={previewUrl}
+                  alt="Preview do arquivo selecionado"
+                  className="h-full w-full object-cover"
+                />
+              )}
               <div className="absolute inset-0 bg-gradient-to-t from-black/60 to-transparent" />
               <div className="absolute bottom-2 left-2 right-2">
                 <p className="text-xs text-white font-medium truncate">
                   {selectedFile?.name}
                 </p>
                 <p className="text-xs text-zinc-300">
-                  Clique para trocar a imagem
+                  Clique para trocar o arquivo
                 </p>
               </div>
             </div>
@@ -440,13 +456,13 @@ export function VideoGenerationUpload({ userId, onGenerateComplete }: VideoGener
             <div className="absolute inset-0 flex flex-col items-center justify-center p-6 text-center">
               <Upload className="h-10 w-10 text-zinc-500 mb-3" />
               <p className="text-sm font-medium text-zinc-300 mb-1.5">
-                Arraste sua imagem
+                Arraste seu arquivo
               </p>
               <p className="text-xs text-zinc-500 mb-2">
                 ou clique para selecionar
               </p>
               <p className="text-xs text-zinc-600">
-                PNG, JPG, GIF até 10MB
+                PNG, JPG, GIF, MP4 até 10MB
               </p>
             </div>
           )}
