@@ -41,11 +41,14 @@ export default function MinhasGeracoesPage() {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
+    let cancelled = false;
+    let channelRef: ReturnType<ReturnType<typeof createClient>['channel']> | null = null;
+    const sb = createClient();
+
     const load = async () => {
-      const sb = createClient();
       const { data: { user } } = await sb.auth.getUser();
 
-      if (!user) {
+      if (!user?.id) {
         router.push('/login');
         return;
       }
@@ -56,6 +59,8 @@ export default function MinhasGeracoesPage() {
         .eq('user_id', user.id)
         .order('created_at', { ascending: false });
 
+      if (cancelled) return;
+
       if (error) {
         console.error('Erro ao buscar gerações:', error);
       } else {
@@ -63,28 +68,35 @@ export default function MinhasGeracoesPage() {
       }
       setLoading(false);
 
-      // Realtime: escutar mudanças nas gerações do usuário
+      // Realtime: .on() ANTES do .subscribe()
       const channel = sb
-        .channel('my-generations')
+        .channel(`my-generations-${user.id}`)
         .on(
           'postgres_changes',
           { event: '*', schema: 'public', table: 'generations', filter: `user_id=eq.${user.id}` },
           () => {
+            if (cancelled) return;
             sb.from('generations' as any)
               .select('*')
               .eq('user_id', user.id)
               .order('created_at', { ascending: false })
               .then(({ data: fresh }) => {
-                if (fresh) setGenerations(fresh as unknown as Generation[]);
+                if (!cancelled && fresh) setGenerations(fresh as unknown as Generation[]);
               });
           }
         )
         .subscribe();
 
-      return () => { sb.removeChannel(channel); };
+      channelRef = channel;
     };
 
     load();
+
+    // Cleanup: desinscrever do canal ao desmontar
+    return () => {
+      cancelled = true;
+      if (channelRef) sb.removeChannel(channelRef);
+    };
   }, [router]);
 
   // ── Loading ──
