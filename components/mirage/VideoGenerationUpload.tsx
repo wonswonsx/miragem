@@ -223,15 +223,20 @@ export function VideoGenerationUpload({ userId, onGenerateComplete }: VideoGener
         });
 
       if (debitError) {
-        throw new Error('Erro ao processar diamantes. Tente novamente.');
+        console.error('Erro Supabase (check_and_debit_diamonds RPC):', JSON.stringify(debitError, null, 2));
+        throw new Error(`Erro ao debitar diamantes: ${debitError.message || JSON.stringify(debitError)}`);
       }
+
+      console.log('Resultado do débito:', JSON.stringify(debitResult, null, 2));
 
       const debit = Array.isArray(debitResult) ? debitResult[0] : debitResult;
       if (!debit?.success) {
+        const msg = debit?.message ?? 'Resposta inesperada do servidor';
+        console.error('Débito falhou:', { debit, msg });
         throw new Error(
-          debit?.message === 'Saldo insuficiente'
+          msg === 'Saldo insuficiente'
             ? `Diamantes insuficientes. Você precisa de ${cost} 💎.`
-            : (debit?.message ?? 'Erro ao debitar diamantes'),
+            : msg,
         );
       }
 
