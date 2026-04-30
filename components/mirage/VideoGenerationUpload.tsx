@@ -1,6 +1,6 @@
 "use client";
 
-import { LoaderCircle, Upload, X, Download } from "lucide-react";
+import { LoaderCircle, Upload, X, Download, Sparkles, Gem } from "lucide-react";
 import { useState, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
@@ -191,34 +191,42 @@ export function VideoGenerationUpload({ userId, onGenerateComplete }: VideoGener
     }
   }, []);
 
-  const handleGenerateVideo = useCallback(async () => {
-    if (!selectedFile || !userId) {
-      setError('Selecione uma imagem primeiro');
+  const handleGenerateVideo = useCallback(async (mode: 'padrao' | 'estendido' = 'padrao', cost: number = 50) => {
+    if (!userId) {
+      setError('Usuário não autenticado');
       return;
     }
 
+    if (!selectedFile) {
+      setError('Selecione uma imagem ou GIF primeiro!');
+      return;
+    }
+
+    console.log(`Botão Clicado! [${mode} ${cost}💎]`);
     setStatus('uploading');
     setError(null);
 
     try {
       const sb = createClient();
-      
-      // 1. Verificar saldo de diamantes
-      const { data: profile, error: profileError } = await sb
-        .from('profiles')
-        .select('diamonds')
-        .eq('id', userId)
-        .single();
 
-      if (profileError || !profile) {
-        throw new Error('Erro ao verificar saldo de diamantes');
+      // 1. Verificar e debitar diamantes atomicamente via RPC
+      const { data: debitResult, error: debitError } = await sb
+        .rpc('check_and_debit_diamonds' as any, {
+          user_id_param: userId,
+          cost_param: cost,
+        });
+
+      if (debitError) {
+        throw new Error('Erro ao processar diamantes. Tente novamente.');
       }
 
-      const currentDiamonds = profile.diamonds || 0;
-      const GENERATION_COST = 50;
-
-      if (currentDiamonds < GENERATION_COST) {
-        throw new Error(`Saldo insuficiente. Você precisa de ${GENERATION_COST} diamantes.`);
+      const debit = Array.isArray(debitResult) ? debitResult[0] : debitResult;
+      if (!debit?.success) {
+        throw new Error(
+          debit?.message === 'Saldo insuficiente'
+            ? `Diamantes insuficientes. Você precisa de ${cost} 💎.`
+            : (debit?.message ?? 'Erro ao debitar diamantes'),
+        );
       }
 
       // 2. Upload da imagem para bucket 'imagens'
@@ -239,38 +247,28 @@ export function VideoGenerationUpload({ userId, onGenerateComplete }: VideoGener
         .from('imagens')
         .getPublicUrl(fileName);
 
-      // 4. Deduzir diamantes
-      const { error: diamondError } = await sb
-        .from('profiles')
-        .update({ diamonds: currentDiamonds - GENERATION_COST })
-        .eq('id', userId);
-
-      if (diamondError) {
-        throw new Error('Erro ao deduzir diamantes');
-      }
-
-      // 5. Registrar transação de diamantes (usando campos corretos)
-      const { error: transactionError } = await sb
+      // 4. Registrar transação de diamantes
+      await sb
         .from('diamond_transactions')
         .insert({
-          delta: -GENERATION_COST,
+          delta: -cost,
           type: 'generation',
           user_id: userId,
           created_at: new Date().toISOString()
+        })
+        .then(({ error: txErr }) => {
+          if (txErr) console.error('Erro ao registrar transação:', txErr);
         });
 
-      if (transactionError) {
-        console.error('Erro ao registrar transação:', transactionError);
-      }
-
-      // 6. Criar registro em generations (usar videos como alternativa)
+      // 5. Criar registro em generations
       const { error: generationError, data: generationData } = await sb
-        .from('videos')
+        .from('generations' as any)
         .insert({
-          title: `Generation_${Date.now()}`,
-          prompt: 'User generated video',
-          video_url: publicUrl,
-          created_at: new Date().toISOString()
+          user_id: userId,
+          image_url: publicUrl,
+          status: 'pending',
+          mode: mode,
+          diamond_cost: cost,
         })
         .select('id')
         .single();
@@ -279,22 +277,24 @@ export function VideoGenerationUpload({ userId, onGenerateComplete }: VideoGener
         console.error('Erro ao criar registro:', generationError);
       }
 
-      // 7. Salvar preview no localStorage
+      // 6. Salvar preview no localStorage
       const reader = new FileReader();
       reader.onload = (e) => {
         const previewUrl = e.target?.result as string;
         localStorage.setItem('recentGenerationImage', previewUrl);
         localStorage.setItem('recentGenerationFileName', selectedFile.name);
         localStorage.setItem('recentGenerationTime', new Date().toISOString());
-        if (generationData && 'id' in generationData) {
-          localStorage.setItem('recentGenerationId', generationData.id);
+        if (generationData && 'id' in (generationData as any)) {
+          localStorage.setItem('recentGenerationId', (generationData as any).id);
         }
       };
       reader.readAsDataURL(selectedFile);
 
       setUploadProgress(100);
-      
-      // 8. Redirecionar para /minhas-geracoes após sucesso
+
+      console.log('Geração criada:', { mode, cost, saldo_restante: debit?.diamonds_after });
+
+      // 7. Redirecionar para /minhas-geracoes após sucesso
       setTimeout(() => {
         router.push('/minhas-geracoes');
       }, 1500);
@@ -400,10 +400,9 @@ export function VideoGenerationUpload({ userId, onGenerateComplete }: VideoGener
         >
           <input
             type="file"
-            accept="image/*"
+            accept="image/png, image/jpeg, image/jpg, image/gif"
             onChange={handleFileSelect}
             className="absolute inset-0 h-full w-full cursor-pointer opacity-0"
-            disabled={status === 'uploading'}
           />
           
           {status === 'uploading' ? (
@@ -444,46 +443,67 @@ export function VideoGenerationUpload({ userId, onGenerateComplete }: VideoGener
                 ou clique para selecionar
               </p>
               <p className="text-xs text-zinc-600">
-                PNG, JPG até 10MB
+                PNG, JPG, GIF até 10MB
               </p>
             </div>
           )}
         </div>
       </div>
 
-      {/* 3. Botão Gerar (Base do Upload) - Proporcional */}
-      <div className="flex justify-center">
+      {/* 3. Botões de Geração */}
+      <div className="flex flex-col gap-2.5">
+        {/* Botão A: Padrão 50 💎 — Violeta */}
         <button
           type="button"
-          onClick={handleGenerateVideo}
-          disabled={!selectedFile || status === 'uploading' || status === 'pending' || status === 'processing'}
-          className="w-fit rounded-lg bg-gradient-to-r from-amber-500 to-amber-600 py-3 px-10 text-center text-sm font-medium text-white shadow-lg shadow-amber-900/20 transition hover:from-amber-600 hover:to-amber-700 disabled:opacity-50 disabled:cursor-not-allowed"
+          style={{ pointerEvents: 'auto', cursor: 'pointer' }}
+          onClick={() => void handleGenerateVideo('padrao', 50)}
+          className="w-full rounded-xl border border-violet-500/50 bg-gradient-to-r from-violet-600 to-fuchsia-600 px-5 py-3.5 text-sm font-semibold text-white shadow-lg shadow-violet-900/40 transition-all duration-200 hover:from-violet-500 hover:to-fuchsia-500 hover:shadow-xl active:scale-[0.98]"
         >
-          {status === 'uploading' || status === 'pending' || status === 'processing' ? (
-            <>
-              <LoaderCircle className="h-3.5 w-3.5 animate-spin mr-2 inline" />
+          {status === 'uploading' ? (
+            <span className="flex items-center justify-center gap-2">
+              <LoaderCircle className="h-4 w-4 animate-spin" />
               Processando...
-            </>
+            </span>
           ) : (
-            <>
-              <Upload className="h-3.5 w-3.5 mr-2 inline" />
-              Gerar Vídeo
-            </>
+            <span className="flex items-center justify-center gap-2">
+              <Sparkles className="h-4 w-4" />
+              Gerar Vídeo (50 💎)
+            </span>
+          )}
+        </button>
+
+        {/* Botão B: Estendido 100 💎 — Dourado VIP */}
+        <button
+          type="button"
+          style={{ pointerEvents: 'auto', cursor: 'pointer', boxShadow: '0 0 24px rgba(251,191,36,0.2), 0 4px 16px rgba(0,0,0,0.5)' }}
+          onClick={() => void handleGenerateVideo('estendido', 100)}
+          className="w-full rounded-xl border-2 border-amber-400/70 bg-gradient-to-r from-amber-900/60 to-yellow-900/60 px-5 py-3.5 text-sm font-semibold text-amber-200 transition-all duration-200 hover:border-amber-300 hover:from-amber-800/70 hover:to-yellow-800/70 hover:text-amber-100 hover:shadow-xl active:scale-[0.98]"
+        >
+          {status === 'uploading' ? (
+            <span className="flex items-center justify-center gap-2">
+              <LoaderCircle className="h-4 w-4 animate-spin" />
+              Processando...
+            </span>
+          ) : (
+            <span className="flex items-center justify-center gap-2">
+              <Gem className="h-4 w-4" />
+              Geração Estendida (100 💎)
+            </span>
           )}
         </button>
       </div>
 
       <div className="flex-1" />
 
-      {/* Card de Custo (Base) */}
-      <div className="rounded-xl border border-amber-500/50 bg-amber-950/50 p-3">
+      {/* Card de Custo */}
+      <div className="rounded-xl border border-violet-500/30 bg-violet-950/40 p-3">
         <div className="flex items-start gap-2">
-          <div className="h-4 w-4 rounded-full bg-amber-500 flex items-center justify-center text-xs font-bold text-black">
-            !
+          <div className="h-4 w-4 rounded-full bg-violet-500 flex items-center justify-center text-xs font-bold text-white">
+            💎
           </div>
           <div>
-            <p className="text-xs font-medium text-amber-300">Custo: 50 diamantes</p>
-            <p className="text-xs text-amber-400 mt-0.5">
+            <p className="text-xs font-medium text-violet-300">Padrão: 50 💎 · Estendida: 100 💎</p>
+            <p className="text-xs text-violet-400 mt-0.5">
               Processamento em alguns minutos.
             </p>
           </div>
