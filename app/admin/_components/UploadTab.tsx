@@ -13,6 +13,8 @@ import type { VideoRow } from "@/types/database";
 import { Check, LoaderCircle, Trash2, Upload, X } from "lucide-react";
 import Image from "next/image";
 import { useRouter } from "next/navigation";
+import { Combobox } from "@/components/ui/combobox";
+import type { ComboboxOption } from "@/components/ui/combobox";
 import type { DragEvent, FormEvent } from "react";
 import {
   useCallback,
@@ -47,8 +49,6 @@ export function UploadTab({ initialModels, suggestedTags }: Props) {
   const router = useRouter();
   const [selectedTags, setSelectedTags] = useState<string[]>([]);
   const [tagInput, setTagInput] = useState("");
-  const [showCreateTag, setShowCreateTag] = useState(false);
-  const [filteredTags, setFilteredTags] = useState<string[]>([]);
   const [availableTags, setAvailableTags] = useState<string[]>([]);
   
   const tagPool = useMemo(
@@ -87,72 +87,12 @@ export function UploadTab({ initialModels, suggestedTags }: Props) {
     fetchTags();
   }, [tagPool]);
 
-  // Filtrar tags baseado no input (usa availableTags para incluir tags recém-criadas)
-  useEffect(() => {
-    const input = tagInput.trim().toLowerCase();
-    if (input === "") {
-      setFilteredTags([]);
-      setShowCreateTag(false);
-      return;
-    }
-    
-    const filtered = availableTags.filter(tag => 
-      tag.toLowerCase().includes(input) && !selectedTags.includes(tag)
-    );
-    setFilteredTags(filtered);
-    
-    // Mostrar opção de criar se não encontrar exatamente
-    const exactMatch = availableTags.some(tag => tag.toLowerCase() === input);
-    setShowCreateTag(!exactMatch && input.length > 0);
-  }, [tagInput, availableTags, selectedTags]);
+  // Opções do Combobox de tags (derivadas de availableTags)
+  const tagComboboxOptions: ComboboxOption[] = useMemo(
+    () => availableTags.map((t) => ({ value: t, label: t })),
+    [availableTags],
+  );
 
-  // Adicionar tag existente
-  const addExistingTag = useCallback((tag: string) => {
-    if (!selectedTags.includes(tag)) {
-      setSelectedTags((prev: string[]) => [...prev, tag]);
-      setTagInput("");
-      setFilteredTags([]);
-      setShowCreateTag(false);
-    }
-  }, [selectedTags]);
-
-  // Criar nova tag
-  const createNewTag = useCallback((tag: string) => {
-    // Verificação de tipo
-    if (typeof tag !== 'string') return;
-    
-    const newTag = tag.trim();
-    if (newTag && !selectedTags.includes(newTag)) {
-      // Adicionar ao estado de seleção
-      setSelectedTags((prev: string[]) => [...prev, newTag]);
-      
-      // Adicionar à lista de tags disponíveis
-      setAvailableTags(prev => [...prev, newTag]);
-      
-      setTagInput("");
-      setFilteredTags([]);
-      setShowCreateTag(false);
-    }
-  }, [selectedTags]);
-
-  // Handle Enter
-  const handleTagInputKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
-    if (e.key === "Enter") {
-      e.preventDefault();
-      const input = tagInput.trim();
-      
-      if (input === "") return;
-      
-      // Verificar se tag já existe
-      const exactMatch = availableTags.some(tag => tag.toLowerCase() === input.toLowerCase());
-      
-      if (exactMatch) {
-        addExistingTag(input);
-      } else {
-        createNewTag(input);
-      }
-    }
-  };
 
   
   const [uploadedVideoUrl, setUploadedVideoUrl] = useState<string | null>(null);
@@ -168,7 +108,15 @@ export function UploadTab({ initialModels, suggestedTags }: Props) {
     [],
   );
   const [categoryName, setCategoryName] = useState("");
-  const [categoryOpen, setCategoryOpen] = useState(false);
+
+  // Opções do Combobox de categorias (banco + tags criadas, sem duplicatas)
+  const categoryComboboxOptions: ComboboxOption[] = useMemo(() => {
+    const fromDb = categories.map((c) => ({ value: c.name, label: c.name }));
+    const fromTags = availableTags
+      .filter((t) => !categories.some((c) => c.name.toLowerCase() === t.toLowerCase()))
+      .map((t) => ({ value: t, label: t }));
+    return [...fromDb, ...fromTags];
+  }, [categories, availableTags]);
 
   type QueueStatus = "pending" | "uploading" | "done" | "error" | "cancelled";
   type UploadQueueItem = {
@@ -724,174 +672,42 @@ export function UploadTab({ initialModels, suggestedTags }: Props) {
             </div>
             <div>
               <label className="text-xs text-[var(--muted)]">Tags</label>
-              <div className="mt-1 relative">
-                <input
-                  type="text"
-                  value={tagInput}
-                  onChange={(e) => setTagInput(e.target.value)}
-                  onKeyDown={handleTagInputKeyDown}
-                  onFocus={() => {
-                    if (tagInput.trim()) {
-                      const filtered = availableTags.filter(tag => 
-                        tag.toLowerCase().includes(tagInput.toLowerCase()) && !selectedTags.includes(tag)
-                      );
-                      setFilteredTags(filtered);
-                    }
-                  }}
-                  placeholder="Digite para buscar ou criar tags..."
-                  className="w-full rounded-xl border border-[rgba(147,112,219,0.25)] bg-black/40 px-3 py-2 text-sm text-[var(--foreground)] outline-none ring-violet-500/20 focus:ring-2"
-                  disabled={uploading}
-                />
-                
-                {/* Dropdown com resultados */}
-                {(filteredTags.length > 0 || showCreateTag) && (
-                  <div className="absolute z-30 mt-1 w-full overflow-hidden rounded-xl border border-[rgba(147,112,219,0.25)] bg-[rgba(15,10,24,0.98)] shadow-lg">
-                    <div className="max-h-[200px] overflow-auto p-1">
-                      {/* Tags existentes */}
-                      {filteredTags.slice(0, 10).map((tag) => (
-                        <button
-                          key={tag}
-                          type="button"
-                          onClick={() => addExistingTag(tag)}
-                          className="flex w-full items-center justify-between rounded-lg px-3 py-2 text-left text-sm text-[var(--foreground)] hover:bg-white/5"
-                        >
-                          <span className="min-w-0 truncate">{tag}</span>
-                          <span className="text-xs text-amber-300/80">Existente</span>
-                        </button>
-                      ))}
-                      
-                      {/* Opção de criar nova tag */}
-                      {showCreateTag && tagInput.trim() && (
-                        <button
-                          type="button"
-                          onClick={() => createNewTag(tagInput.trim())}
-                          className="flex w-full items-center justify-between rounded-lg px-3 py-2 text-left text-sm text-amber-100 hover:bg-amber-500/20"
-                        >
-                          <span>+ Criar &quot;{tagInput.trim()}&quot;</span>
-                        </button>
-                      )}
-                    </div>
-                  </div>
-                )}
-              </div>
-              
-              {/* Tags selecionadas */}
-              {selectedTags.length > 0 && (
-                <div className="mt-2 flex flex-wrap gap-2">
-                  {selectedTags.map((tag) => (
-                    <span
-                      key={tag}
-                      className="inline-flex items-center gap-1 rounded-full bg-amber-500/90 border-amber-400/50 px-2.5 py-0.5 text-xs font-medium text-amber-900 shadow-[0_0_8px_rgba(251,191,36,0.2)]"
-                    >
-                      {tag}
-                      <button
-                        type="button"
-                        className="rounded p-0.5 hover:bg-amber-600/30"
-                        onClick={() => setSelectedTags(prev => prev.filter(t => t !== tag))}
-                        aria-label={`Remover ${tag}`}
-                      >
-                        <X className="h-3 w-3" />
-                      </button>
-                    </span>
-                  ))}
-                </div>
-              )}
+              <Combobox
+                options={tagComboboxOptions}
+                selected={selectedTags}
+                onChange={setSelectedTags}
+                creatable
+                onCreateOption={(val) => {
+                  setAvailableTags((prev) => [...new Set([...prev, val])]);
+                }}
+                multiple
+                placeholder="Pesquisar ou criar tags…"
+                createLabel="Criar tag"
+                disabled={uploading}
+                className="mt-1"
+              />
             </div>
           </div>
         </div>
 
         {uploadedVideoUrl ? (
           <form className="mt-6 space-y-4" onSubmit={onPublish}>
-            <div className="relative">
+            <div>
               <label className="text-xs text-[var(--muted)]">
-                Categoria (selecionar ou digitar)
+                Categoria
               </label>
-              <div className="mt-1 flex items-center gap-2">
-                <input
-                  value={categoryName}
-                  onChange={(e) => {
-                    setCategoryName(e.target.value);
-                    setCategoryOpen(true);
-                  }}
-                  onFocus={() => setCategoryOpen(true)}
-                  onBlur={() => window.setTimeout(() => setCategoryOpen(false), 120)}
-                  placeholder="Ex.: romance, cosplay, backstage…"
-                  className="w-full rounded-xl border border-[rgba(147,112,219,0.25)] bg-black/40 px-3 py-2 text-sm text-[var(--foreground)] outline-none ring-violet-500/20 focus:ring-2"
-                />
-              </div>
-
-              {categoryOpen ? (
-                <div className="absolute z-20 mt-2 w-full overflow-hidden rounded-2xl border border-[rgba(147,112,219,0.25)] bg-[rgba(15,10,24,0.98)] shadow-[0_18px_50px_rgba(0,0,0,0.55)]">
-                  <div className="max-h-[260px] overflow-auto p-1.5">
-                    {(() => {
-                      const q = categoryName.trim().toLowerCase();
-                      // Combinar categorias do banco + tags recém-criadas como sugestões
-                      const allSuggestions = [
-                        ...categories,
-                        ...availableTags
-                          .filter(t => !categories.some(c => c.name.toLowerCase() === t.toLowerCase()))
-                          .map(t => ({ id: `tag-${t}`, name: t })),
-                      ];
-                      const filtered =
-                        q === ""
-                          ? allSuggestions.slice(0, 18)
-                          : allSuggestions
-                              .filter((c) => c.name.toLowerCase().includes(q))
-                              .slice(0, 18);
-
-                      const exact = q
-                        ? allSuggestions.some((c) => c.name.toLowerCase() === q)
-                        : false;
-
-                      return (
-                        <>
-                          {!exact && q ? (
-                            <button
-                              type="button"
-                              className="flex w-full items-center justify-between rounded-xl px-3 py-2 text-left text-sm text-amber-100 hover:bg-white/5"
-                              onMouseDown={(e) => e.preventDefault()}
-                              onClick={() => {
-                                setCategoryName(categoryName.trim());
-                                setCategoryOpen(false);
-                              }}
-                            >
-                              <span className="min-w-0 truncate">
-                                Criar categoria “{categoryName.trim()}”
-                              </span>
-                              <span className="text-[11px] text-amber-200/80">
-                                Enter
-                              </span>
-                            </button>
-                          ) : null}
-
-                          {filtered.map((c) => (
-                            <button
-                              key={c.id}
-                              type="button"
-                              className="flex w-full items-center justify-between rounded-xl px-3 py-2 text-left text-sm text-[var(--foreground)] hover:bg-white/5"
-                              onMouseDown={(e) => e.preventDefault()}
-                              onClick={() => {
-                                setCategoryName(c.name);
-                                setCategoryOpen(false);
-                              }}
-                            >
-                              <span className="min-w-0 truncate">{c.name}</span>
-                            </button>
-                          ))}
-
-                          {filtered.length === 0 && (!q || exact) ? (
-                            <p className="px-3 py-2 text-xs text-[var(--muted)]">
-                              Nenhuma categoria encontrada.
-                            </p>
-                          ) : null}
-                        </>
-                      );
-                    })()}
-                  </div>
-                </div>
-              ) : null}
+              <Combobox
+                options={categoryComboboxOptions}
+                selected={categoryName.trim() ? [categoryName.trim()] : []}
+                onChange={(vals) => setCategoryName(vals[0] ?? "")}
+                creatable
+                multiple={false}
+                placeholder="Ex.: romance, cosplay, backstage…"
+                createLabel="Criar categoria"
+                className="mt-1"
+              />
               <p className="mt-1 text-[11px] text-[var(--muted)]">
-                Dica: digite um nome novo e publique — ele vira sugestão automaticamente no próximo upload.
+                Dica: digite um nome novo e publique — ele vira sugestão automaticamente.
               </p>
             </div>
             <div>
