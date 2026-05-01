@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from "react";
 import { createClient } from "@/lib/supabase/client";
-import { LoaderCircle, ArrowLeft, Download, Clock, CheckCircle2, AlertTriangle, Sparkles } from "lucide-react";
+import { LoaderCircle, ArrowLeft, Download, Clock, CheckCircle2, AlertTriangle, Sparkles, Eye } from "lucide-react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { DarkAppHeader } from "@/components/DarkAppHeader";
@@ -14,9 +14,11 @@ interface Generation {
   status: string;
   created_at: string;
   video_url?: string | null;
+  result_url?: string | null;
   thumbnail_url?: string | null;
   diamond_cost?: number;
   mode?: string;
+  type?: string;
 }
 
 function statusConfig(status: string) {
@@ -162,7 +164,7 @@ export default function MinhasGeracoesPage() {
             {generations.map((gen) => {
               const cfg = statusConfig(gen.status);
               const StatusIcon = cfg.icon;
-              const isPending = gen.status === 'pendente' || gen.status === 'pending';
+              const isPending = gen.status === 'pendente' || gen.status === 'pending' || gen.status === 'processing' || gen.status === 'processando';
               const isCompleted = gen.status === 'concluido' || gen.status === 'completed';
 
               return (
@@ -172,16 +174,29 @@ export default function MinhasGeracoesPage() {
                 >
                   {/* Preview area */}
                   <div className="relative aspect-video w-full overflow-hidden bg-black/40">
-                    {isCompleted && gen.video_url ? (
-                      <video
-                        src={gen.video_url}
-                        className="h-full w-full object-cover"
-                        muted
-                        loop
-                        playsInline
-                        autoPlay
-                        controls
-                      />
+                    {isCompleted && (gen.result_url || gen.video_url) ? (
+                      (() => {
+                        const url = gen.result_url || gen.video_url || "";
+                        const isVideo = /\.(mp4|webm|mov|avi)(\?|$)/i.test(url);
+                        return isVideo ? (
+                          <video
+                            src={url}
+                            className="h-full w-full object-cover"
+                            muted
+                            loop
+                            playsInline
+                            autoPlay
+                            controls
+                          />
+                        ) : (
+                          // eslint-disable-next-line @next/next/no-img-element
+                          <img
+                            src={url}
+                            alt="Resultado"
+                            className="h-full w-full object-cover"
+                          />
+                        );
+                      })()
                     ) : (
                       <div className="flex h-full w-full flex-col items-center justify-center gap-3 bg-gradient-to-br from-violet-900/20 to-fuchsia-900/20 p-6">
                         {isPending ? (
@@ -229,20 +244,31 @@ export default function MinhasGeracoesPage() {
                     {/* Modo + Custo */}
                     {gen.diamond_cost && (
                       <p className="text-xs text-violet-400">
-                        {gen.mode === 'estendido' ? 'Estendida' : 'Padrão'} · {gen.diamond_cost} 💎
+                        {(gen.type ?? gen.mode) === 'estendido' ? 'Estendida' : 'Padrão'} · {gen.diamond_cost} 💎
                       </p>
                     )}
 
-                    {/* Download */}
-                    {isCompleted && gen.video_url && (
-                      <a
-                        href={gen.video_url}
-                        download
-                        className="flex w-full items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-green-500 to-emerald-600 px-3 py-2 text-sm font-medium text-white transition hover:from-green-600 hover:to-emerald-700"
-                      >
-                        <Download className="h-3.5 w-3.5" />
-                        Baixar Vídeo
-                      </a>
+                    {/* Ver Resultado */}
+                    {isCompleted && (gen.result_url || gen.video_url) && (
+                      <div className="flex flex-col gap-2">
+                        <a
+                          href={gen.result_url || gen.video_url || "#"}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="flex w-full items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-violet-500 to-fuchsia-600 px-3 py-2 text-sm font-medium text-white transition hover:from-violet-600 hover:to-fuchsia-700"
+                        >
+                          <Eye className="h-3.5 w-3.5" />
+                          Ver Resultado
+                        </a>
+                        <a
+                          href={gen.result_url || gen.video_url || "#"}
+                          download
+                          className="flex w-full items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-green-500 to-emerald-600 px-3 py-2 text-sm font-medium text-white transition hover:from-green-600 hover:to-emerald-700"
+                        >
+                          <Download className="h-3.5 w-3.5" />
+                          Baixar
+                        </a>
+                      </div>
                     )}
                   </div>
                 </div>
