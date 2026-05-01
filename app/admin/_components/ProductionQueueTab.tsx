@@ -18,10 +18,9 @@ type QueueItem = {
   created_at: string;
   updated_at: string;
   completed_at: string | null;
-  profiles?: {
-    email: string;
-    display_name: string | null;
-  };
+  // Campos achatados vindos da view admin_queue
+  client_email: string | null;
+  client_name: string | null;
 };
 
 const STATUS_LABELS: Record<string, string> = {
@@ -39,15 +38,14 @@ export function ProductionQueueTab() {
   const [newCount, setNewCount] = useState(0);
   const fileInputRefs = useRef<Map<string, HTMLInputElement>>(new Map());
 
-  // ── Fetch inicial: pending + processing ──
+  // ── Fetch inicial via view admin_queue (já vem filtrado e com nome do cliente) ──
   const fetchQueue = useCallback(async () => {
     try {
       const sb = createClient();
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const { data, error } = await sb
-        .from("generations" as any)
-        .select("*, profiles!inner(email, display_name)")
-        .in("status", ["pending", "processing"])
+        .from("admin_queue" as any)
+        .select("*")
         .order("created_at", { ascending: true });
 
       if (error) {
@@ -66,7 +64,7 @@ export function ProductionQueueTab() {
     fetchQueue();
   }, [fetchQueue]);
 
-  // ── Realtime: novos pedidos + atualizações ──
+  // ── Realtime: escuta na tabela generations → re-fetch da view admin_queue ──
   useEffect(() => {
     const sb = createClient();
 
@@ -259,7 +257,7 @@ export function ProductionQueueTab() {
                 <div className="min-w-0 flex-1 space-y-0.5">
                   <div className="flex items-center gap-2">
                     <span className="truncate text-sm font-medium text-[#e9d5ff]">
-                      {item.profiles?.display_name || item.profiles?.email || "—"}
+                      {item.client_name || item.client_email || "—"}
                     </span>
                     <span
                       className={`shrink-0 rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider ${
@@ -272,7 +270,7 @@ export function ProductionQueueTab() {
                     </span>
                   </div>
                   <div className="text-xs text-[rgba(232,224,240,0.5)]">
-                    {item.profiles?.email}
+                    {item.client_email}
                   </div>
                   <div className="flex items-center gap-3 text-xs text-[rgba(232,224,240,0.5)]">
                     <span>
@@ -391,7 +389,7 @@ export function ProductionQueueTab() {
                 <div className="space-y-1 text-sm text-[rgba(232,224,240,0.8)]">
                   <div>
                     Cliente:{" "}
-                    {selected.profiles?.display_name || selected.profiles?.email}
+                    {selected.client_name || selected.client_email}
                   </div>
                   <div>
                     Data: {new Date(selected.created_at).toLocaleString("pt-BR")}
