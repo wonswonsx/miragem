@@ -2,9 +2,26 @@
 
 import { createClient } from "@/lib/supabase/client";
 import { playNotificationSound } from "@/lib/playNotificationSound";
-import { LoaderCircle, Upload, Eye, Download, Bell, CheckCircle2 } from "lucide-react";
+import {
+  LoaderCircle,
+  Upload,
+  Eye,
+  Download,
+  Bell,
+  CheckCircle2,
+  X,
+  ZoomIn,
+} from "lucide-react";
 import Image from "next/image";
-import { useCallback, useEffect, useRef, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+  type DragEvent,
+} from "react";
+
+/* ── Tipos ── */
 
 type QueueItem = {
   id: string;
@@ -18,9 +35,14 @@ type QueueItem = {
   created_at: string;
   updated_at: string;
   completed_at: string | null;
-  // Campos achatados vindos da view admin_queue
   client_email: string | null;
   client_name: string | null;
+};
+
+type FloatingToast = {
+  id: number;
+  type: "ok" | "err" | "info";
+  text: string;
 };
 
 const STATUS_LABELS: Record<string, string> = {
@@ -28,17 +50,39 @@ const STATUS_LABELS: Record<string, string> = {
   processing: "Em produção",
 };
 
+let toastCounter = 0;
+
+/* ── Componente ── */
+
 export function ProductionQueueTab() {
   const [items, setItems] = useState<QueueItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [uploadingId, setUploadingId] = useState<string | null>(null);
-  const [toast, setToast] = useState<{ type: "ok" | "err"; text: string } | null>(null);
   const [selected, setSelected] = useState<QueueItem | null>(null);
   const [resultFile, setResultFile] = useState<File | null>(null);
   const [newCount, setNewCount] = useState(0);
+  const [previewUrl, setPreviewUrl] = useState<string | null>(null);
+  const [toasts, setToasts] = useState<FloatingToast[]>([]);
+  const [dragOverId, setDragOverId] = useState<string | null>(null);
   const fileInputRefs = useRef<Map<string, HTMLInputElement>>(new Map());
 
-  // ── Fetch inicial via view admin_queue (já vem filtrado e com nome do cliente) ──
+  /* ── Toast flutuante ── */
+  const pushToast = useCallback(
+    (type: FloatingToast["type"], text: string) => {
+      const id = ++toastCounter;
+      setToasts((prev) => [...prev, { id, type, text }]);
+      setTimeout(() => {
+        setToasts((prev) => prev.filter((t) => t.id !== id));
+      }, 5000);
+    },
+    [],
+  );
+
+  const dismissToast = useCallback((id: number) => {
+    setToasts((prev) => prev.filter((t) => t.id !== id));
+  }, []);
+
+  /* ── Fetch via view admin_queue ── */
   const fetchQueue = useCallback(async () => {
     try {
       const sb = createClient();
@@ -64,7 +108,7 @@ export function ProductionQueueTab() {
     fetchQueue();
   }, [fetchQueue]);
 
-  // ── Realtime: escuta na tabela generations → re-fetch da view admin_queue ──
+  /* ── Realtime: escuta generations → re-fetch admin_queue ── */
   useEffect(() => {
     const sb = createClient();
 
@@ -73,30 +117,34 @@ export function ProductionQueueTab() {
       .on(
         "postgres_changes",
         { event: "*", schema: "public", table: "generations" },
-        (payload) => {
-          const row = payload.new as QueueItem | undefined;
+        async (payload) => {
+          const row = payload.new as Partial<QueueItem> | undefined;
           if (!row) return;
 
           if (
             payload.eventType === "INSERT" &&
             (row.status === "pending" || row.status === "processing")
           ) {
-            // Novo pedido — som + badge
             playNotificationSound();
             setNewCount((c) => c + 1);
-            // Re-fetch para ter o join com profiles
-            fetchQueue();
+
+            // Re-fetch para obter client_name da view
+            await fetchQueue();
+
+            // Toast com nome do cliente (pegar da lista atualizada)
+            setItems((current) => {
+              const found = current.find((i) => i.id === row.id);
+              const name = found?.client_name || found?.client_email || "Cliente";
+              pushToast("info", `Novo pedido de ${name}!`);
+              return current;
+            });
           }
 
           if (payload.eventType === "UPDATE") {
             if (row.status === "completed" || row.status === "failed") {
-              // Remover da fila
               setItems((prev) => prev.filter((i) => i.id !== row.id));
             } else {
-              // Atualizar status
-              setItems((prev) =>
-                prev.map((i) => (i.id === row.id ? { ...i, ...row } : i)),
-              );
+              fetchQueue();
             }
           }
         },
@@ -106,9 +154,9 @@ export function ProductionQueueTab() {
     return () => {
       sb.removeChannel(channel);
     };
-  }, [fetchQueue]);
+  }, [fetchQueue, pushToast]);
 
-  // Limpar badge após 5s
+  // Limpar badge
   useEffect(() => {
     if (newCount > 0) {
       const t = setTimeout(() => setNewCount(0), 5000);
@@ -116,16 +164,14 @@ export function ProductionQueueTab() {
     }
   }, [newCount]);
 
-  // ── Upload do resultado finalizado ──
+  /* ── Upload do resultado ── */
   const handleUploadResult = useCallback(
     async (item: QueueItem, file: File) => {
       setUploadingId(item.id);
-      setToast(null);
 
       try {
         const sb = createClient();
 
-        // 1. Upload para bucket imagens, pasta resultados/
         const path = `resultados/${item.id}/${Date.now()}-${file.name}`;
         const { error: upErr } = await sb.storage
           .from("imagens")
@@ -133,12 +179,10 @@ export function ProductionQueueTab() {
 
         if (upErr) throw new Error("Upload falhou: " + upErr.message);
 
-        // 2. URL pública
         const {
           data: { publicUrl },
         } = sb.storage.from("imagens").getPublicUrl(path);
 
-        // 3. Atualizar generation: result_url + status completed
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         const { error: updateErr } = await sb
           .from("generations" as any)
@@ -151,37 +195,86 @@ export function ProductionQueueTab() {
 
         if (updateErr) throw new Error("Update falhou: " + updateErr.message);
 
-        setToast({ type: "ok", text: `Resultado entregue para #${item.id.slice(0, 8)}!` });
-
-        // Remover da lista local
+        pushToast("ok", `Resultado entregue para #${item.id.slice(0, 8)}!`);
         setItems((prev) => prev.filter((i) => i.id !== item.id));
         setSelected(null);
         setResultFile(null);
       } catch (err) {
         console.error("[Queue] Erro upload resultado:", err);
-        setToast({
-          type: "err",
-          text: err instanceof Error ? err.message : "Erro ao enviar resultado",
-        });
+        pushToast(
+          "err",
+          err instanceof Error ? err.message : "Erro ao enviar resultado",
+        );
       } finally {
         setUploadingId(null);
       }
     },
+    [pushToast],
+  );
+
+  /* ── Drag & Drop handlers ── */
+  const onDragOver = useCallback(
+    (e: DragEvent<HTMLDivElement>, itemId: string) => {
+      e.preventDefault();
+      e.stopPropagation();
+      setDragOverId(itemId);
+    },
     [],
   );
 
-  // ── Inline upload por item (sem modal) ──
-  const handleInlineFileChange = useCallback(
-    (item: QueueItem, file: File | undefined) => {
+  const onDragLeave = useCallback((e: DragEvent<HTMLDivElement>) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setDragOverId(null);
+  }, []);
+
+  const onDrop = useCallback(
+    (e: DragEvent<HTMLDivElement>, item: QueueItem) => {
+      e.preventDefault();
+      e.stopPropagation();
+      setDragOverId(null);
+
+      const file = e.dataTransfer.files?.[0];
       if (!file) return;
+
+      // Auto-upload imediato
       handleUploadResult(item, file);
     },
     [handleUploadResult],
   );
 
-  // ── Render ──
+  /* ── Render ── */
   return (
-    <section className="space-y-4">
+    <section className="relative space-y-4">
+      {/* ── Floating Toasts (topo fixo) ── */}
+      <div className="pointer-events-none fixed left-0 right-0 top-4 z-[1100] flex flex-col items-center gap-2">
+        {toasts.map((t) => (
+          <div
+            key={t.id}
+            className={`pointer-events-auto flex items-center gap-3 rounded-2xl border px-5 py-3 text-sm font-medium shadow-xl backdrop-blur-md animate-in slide-in-from-top-3 fade-in duration-300 ${
+              t.type === "ok"
+                ? "border-emerald-500/40 bg-emerald-950/80 text-emerald-100"
+                : t.type === "err"
+                  ? "border-red-500/40 bg-red-950/80 text-red-100"
+                  : "border-amber-500/40 bg-amber-950/80 text-amber-100"
+            }`}
+          >
+            {t.type === "info" && <Bell className="h-4 w-4 text-amber-400" />}
+            {t.type === "ok" && (
+              <CheckCircle2 className="h-4 w-4 text-emerald-400" />
+            )}
+            <span>{t.text}</span>
+            <button
+              type="button"
+              onClick={() => dismissToast(t.id)}
+              className="ml-1 rounded-full p-0.5 hover:bg-white/10"
+            >
+              <X className="h-3.5 w-3.5" />
+            </button>
+          </div>
+        ))}
+      </div>
+
       {/* Header */}
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-3">
@@ -202,21 +295,7 @@ export function ProductionQueueTab() {
         </div>
       </div>
 
-      {/* Toast */}
-      {toast && (
-        <div
-          className={`rounded-2xl border px-4 py-3 text-sm ${
-            toast.type === "ok"
-              ? "border-emerald-500/25 bg-emerald-950/30 text-emerald-100"
-              : "border-red-500/25 bg-red-950/30 text-red-100"
-          }`}
-          role="status"
-        >
-          {toast.text}
-        </div>
-      )}
-
-      {/* Loading */}
+      {/* Loading / Empty / List */}
       {loading ? (
         <div className="flex justify-center py-10">
           <LoaderCircle className="h-8 w-8 animate-spin text-violet-400" />
@@ -233,25 +312,44 @@ export function ProductionQueueTab() {
           {items.map((item) => (
             <div
               key={item.id}
-              className="overflow-hidden rounded-2xl border border-[rgba(147,112,219,0.22)] bg-black/25"
+              className={`overflow-hidden rounded-2xl border transition-all duration-200 ${
+                dragOverId === item.id
+                  ? "border-emerald-400/60 bg-emerald-950/20 shadow-[0_0_20px_rgba(52,211,153,0.15)]"
+                  : "border-[rgba(147,112,219,0.22)] bg-black/25"
+              }`}
+              onDragOver={(e) => onDragOver(e, item.id)}
+              onDragLeave={onDragLeave}
+              onDrop={(e) => onDrop(e, item)}
             >
               <div className="flex flex-col gap-4 p-4 sm:flex-row sm:items-center">
-                {/* Miniatura */}
-                <div className="relative h-20 w-14 shrink-0 overflow-hidden rounded-lg bg-black">
+                {/* Miniatura clicável */}
+                <button
+                  type="button"
+                  className="group/thumb relative h-20 w-14 shrink-0 overflow-hidden rounded-lg bg-black"
+                  onClick={() =>
+                    item.image_url && setPreviewUrl(item.image_url)
+                  }
+                  title="Clique para ampliar"
+                >
                   {item.image_url ? (
-                    <Image
-                      src={item.image_url}
-                      alt="Imagem enviada"
-                      fill
-                      className="object-cover"
-                      sizes="56px"
-                    />
+                    <>
+                      <Image
+                        src={item.image_url}
+                        alt="Imagem enviada"
+                        fill
+                        className="object-cover transition group-hover/thumb:brightness-75"
+                        sizes="56px"
+                      />
+                      <div className="absolute inset-0 flex items-center justify-center opacity-0 transition group-hover/thumb:opacity-100">
+                        <ZoomIn className="h-5 w-5 text-white drop-shadow" />
+                      </div>
+                    </>
                   ) : (
                     <div className="flex h-full w-full items-center justify-center text-xs text-zinc-600">
                       N/A
                     </div>
                   )}
-                </div>
+                </button>
 
                 {/* Info */}
                 <div className="min-w-0 flex-1 space-y-0.5">
@@ -292,11 +390,18 @@ export function ProductionQueueTab() {
                       {STATUS_LABELS[item.status] ?? item.status}
                     </span>
                   </div>
+
+                  {/* Drag hint */}
+                  {dragOverId === item.id && (
+                    <p className="mt-1 text-xs font-semibold text-emerald-300 animate-pulse">
+                      Solte para entregar o resultado…
+                    </p>
+                  )}
                 </div>
 
                 {/* Ações */}
                 <div className="flex shrink-0 items-center gap-2">
-                  {/* Download original */}
+                  {/* Baixar Arquivo Original */}
                   {item.image_url && (
                     <a
                       href={item.image_url}
@@ -304,10 +409,10 @@ export function ProductionQueueTab() {
                       target="_blank"
                       rel="noopener noreferrer"
                       className="inline-flex items-center gap-1.5 rounded-xl border border-[rgba(147,112,219,0.3)] bg-black/40 px-3 py-2 text-xs font-medium text-violet-200 transition hover:border-violet-400/50 hover:bg-violet-900/20"
-                      title="Baixar original"
+                      title="Baixar Arquivo Original"
                     >
                       <Download className="h-3.5 w-3.5" />
-                      Original
+                      Baixar Original
                     </a>
                   )}
 
@@ -319,7 +424,10 @@ export function ProductionQueueTab() {
                     ref={(el) => {
                       if (el) fileInputRefs.current.set(item.id, el);
                     }}
-                    onChange={(e) => handleInlineFileChange(item, e.target.files?.[0])}
+                    onChange={(e) => {
+                      const f = e.target.files?.[0];
+                      if (f) handleUploadResult(item, f);
+                    }}
                     disabled={uploadingId === item.id}
                   />
 
@@ -331,7 +439,9 @@ export function ProductionQueueTab() {
                   ) : (
                     <button
                       type="button"
-                      onClick={() => fileInputRefs.current.get(item.id)?.click()}
+                      onClick={() =>
+                        fileInputRefs.current.get(item.id)?.click()
+                      }
                       className="inline-flex items-center gap-1.5 rounded-xl bg-gradient-to-r from-emerald-500 to-emerald-600 px-3 py-2 text-xs font-medium text-white shadow-lg shadow-emerald-900/20 transition hover:brightness-110"
                     >
                       <Upload className="h-3.5 w-3.5" />
@@ -358,7 +468,41 @@ export function ProductionQueueTab() {
         </div>
       )}
 
-      {/* ── Modal de Detalhes + Upload ── */}
+      {/* ── Modal Preview (imagem em tamanho real) ── */}
+      {previewUrl && (
+        <div
+          className="fixed inset-0 z-[1050] flex items-center justify-center bg-black/80 backdrop-blur-sm"
+          onClick={() => setPreviewUrl(null)}
+        >
+          <button
+            type="button"
+            className="absolute right-4 top-4 z-10 rounded-full border border-white/20 bg-black/60 p-2 text-white hover:bg-white/10"
+            onClick={() => setPreviewUrl(null)}
+          >
+            <X className="h-5 w-5" />
+          </button>
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img
+            src={previewUrl}
+            alt="Preview em tamanho real"
+            className="max-h-[90vh] max-w-[90vw] rounded-xl object-contain shadow-2xl"
+            onClick={(e) => e.stopPropagation()}
+          />
+          <a
+            href={previewUrl}
+            download
+            target="_blank"
+            rel="noopener noreferrer"
+            className="absolute bottom-6 inline-flex items-center gap-2 rounded-xl bg-white/10 px-4 py-2 text-sm font-medium text-white backdrop-blur hover:bg-white/20"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <Download className="h-4 w-4" />
+            Baixar Arquivo Original
+          </a>
+        </div>
+      )}
+
+      {/* ── Modal de Detalhes + Upload com Drop Zone ── */}
       {selected && (
         <div className="fixed inset-0 z-[1000] flex items-center justify-center p-5">
           <div
@@ -392,24 +536,27 @@ export function ProductionQueueTab() {
                     {selected.client_name || selected.client_email}
                   </div>
                   <div>
-                    Data: {new Date(selected.created_at).toLocaleString("pt-BR")}
+                    Data:{" "}
+                    {new Date(selected.created_at).toLocaleString("pt-BR")}
                   </div>
                   <div>Custo: {selected.diamond_cost} 💎</div>
                   <div>
                     Tipo:{" "}
                     <span className="font-semibold">
-                      {selected.type === "estendido" ? "Estendido" : "Padrão"}
+                      {selected.type === "estendido"
+                        ? "Estendido"
+                        : "Padrão"}
                     </span>
                   </div>
                 </div>
               </div>
 
               <div className="grid gap-6 md:grid-cols-2">
-                {/* Imagem original */}
+                {/* Imagem original (clicável) */}
                 <div>
                   <div className="mb-2 flex items-center justify-between">
                     <h4 className="text-sm font-medium text-[#e9d5ff]">
-                      Imagem/Vídeo Enviado
+                      Arquivo Enviado pelo Cliente
                     </h4>
                     {selected.image_url && (
                       <a
@@ -424,34 +571,68 @@ export function ProductionQueueTab() {
                       </a>
                     )}
                   </div>
-                  <div className="relative aspect-[9/16] w-full overflow-hidden rounded-xl bg-black">
+                  <button
+                    type="button"
+                    className="group relative aspect-[9/16] w-full overflow-hidden rounded-xl bg-black"
+                    onClick={() =>
+                      selected.image_url && setPreviewUrl(selected.image_url)
+                    }
+                  >
                     {selected.image_url ? (
-                      <Image
-                        src={selected.image_url}
-                        alt="Original"
-                        fill
-                        className="object-cover"
-                      />
+                      <>
+                        <Image
+                          src={selected.image_url}
+                          alt="Original"
+                          fill
+                          className="object-cover transition group-hover:brightness-75"
+                        />
+                        <div className="absolute inset-0 flex items-center justify-center opacity-0 transition group-hover:opacity-100">
+                          <ZoomIn className="h-8 w-8 text-white drop-shadow-lg" />
+                        </div>
+                      </>
                     ) : (
                       <div className="flex h-full items-center justify-center text-sm text-zinc-600">
                         Sem imagem
                       </div>
                     )}
-                  </div>
+                  </button>
                 </div>
 
-                {/* Upload do resultado */}
+                {/* Drop Zone para entrega */}
                 <div>
                   <h4 className="mb-2 text-sm font-medium text-[#e9d5ff]">
-                    Upload do Resultado
+                    Entrega do Resultado
                   </h4>
                   <div className="space-y-4">
                     <div
-                      className={`relative aspect-[9/16] w-full overflow-hidden rounded-xl border-2 border-dashed transition ${
-                        resultFile
-                          ? "border-emerald-500/50 bg-emerald-950/20"
-                          : "border-zinc-700 bg-zinc-900/50"
+                      className={`relative aspect-[9/16] w-full overflow-hidden rounded-xl border-2 border-dashed transition-all duration-200 ${
+                        dragOverId === `modal-${selected.id}`
+                          ? "border-emerald-400 bg-emerald-950/30 shadow-[0_0_30px_rgba(52,211,153,0.2)]"
+                          : resultFile
+                            ? "border-emerald-500/50 bg-emerald-950/20"
+                            : "border-zinc-700 bg-zinc-900/50"
                       }`}
+                      onDragOver={(e) => {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        setDragOverId(`modal-${selected.id}`);
+                      }}
+                      onDragLeave={(e) => {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        setDragOverId(null);
+                      }}
+                      onDrop={(e) => {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        setDragOverId(null);
+                        const file = e.dataTransfer.files?.[0];
+                        if (file) {
+                          setResultFile(file);
+                          // Auto-upload
+                          handleUploadResult(selected, file);
+                        }
+                      }}
                     >
                       <input
                         type="file"
@@ -463,7 +644,14 @@ export function ProductionQueueTab() {
                         disabled={uploadingId === selected.id}
                       />
 
-                      {resultFile ? (
+                      {uploadingId === selected.id ? (
+                        <div className="flex h-full flex-col items-center justify-center gap-3 p-8 text-center">
+                          <LoaderCircle className="h-12 w-12 animate-spin text-emerald-400" />
+                          <p className="text-sm font-medium text-emerald-200">
+                            Enviando resultado…
+                          </p>
+                        </div>
+                      ) : resultFile ? (
                         <div className="absolute inset-0 flex flex-col items-center justify-center p-4 text-white">
                           {resultFile.type.startsWith("video/") ? (
                             <video
@@ -475,11 +663,11 @@ export function ProductionQueueTab() {
                               controls
                             />
                           ) : (
-                            <Image
+                            // eslint-disable-next-line @next/next/no-img-element
+                            <img
                               src={URL.createObjectURL(resultFile)}
                               alt="Preview"
-                              fill
-                              className="object-cover"
+                              className="h-full w-full rounded-lg object-cover"
                             />
                           )}
                           <div className="absolute bottom-2 right-2 rounded bg-black/70 px-2 py-1 text-xs">
@@ -487,39 +675,39 @@ export function ProductionQueueTab() {
                           </div>
                         </div>
                       ) : (
-                        <div className="flex flex-col items-center justify-center p-8 text-center">
-                          <Upload className="mb-4 h-12 w-12 text-zinc-500" />
+                        <div className="flex h-full flex-col items-center justify-center p-8 text-center">
+                          <Upload
+                            className={`mb-4 h-12 w-12 transition ${
+                              dragOverId === `modal-${selected.id}`
+                                ? "text-emerald-400 scale-110"
+                                : "text-zinc-500"
+                            }`}
+                          />
                           <p className="mb-2 text-sm text-zinc-300">
-                            Arraste o resultado aqui
+                            {dragOverId === `modal-${selected.id}`
+                              ? "Solte para enviar!"
+                              : "Arraste e solte o resultado aqui"}
                           </p>
                           <p className="text-xs text-zinc-500">
                             ou clique para selecionar
+                          </p>
+                          <p className="mt-3 text-[10px] text-emerald-400/60">
+                            O upload começa automaticamente ao soltar o arquivo
                           </p>
                         </div>
                       )}
                     </div>
 
-                    <button
-                      type="button"
-                      onClick={() => {
-                        if (resultFile && selected)
-                          handleUploadResult(selected, resultFile);
-                      }}
-                      disabled={!resultFile || uploadingId === selected.id}
-                      className="w-full rounded-xl bg-gradient-to-r from-emerald-500 to-emerald-600 px-4 py-3 text-center font-medium text-white shadow-lg shadow-emerald-900/20 transition hover:from-emerald-600 hover:to-emerald-700 disabled:cursor-not-allowed disabled:opacity-50"
-                    >
-                      {uploadingId === selected.id ? (
-                        <>
-                          <LoaderCircle className="mr-2 inline h-4 w-4 animate-spin" />
-                          Enviando…
-                        </>
-                      ) : (
-                        <>
-                          <Upload className="mr-2 inline h-4 w-4" />
-                          Entregar Resultado ao Cliente
-                        </>
-                      )}
-                    </button>
+                    {resultFile && uploadingId !== selected.id && (
+                      <button
+                        type="button"
+                        onClick={() => handleUploadResult(selected, resultFile)}
+                        className="w-full rounded-xl bg-gradient-to-r from-emerald-500 to-emerald-600 px-4 py-3 text-center font-medium text-white shadow-lg shadow-emerald-900/20 transition hover:from-emerald-600 hover:to-emerald-700"
+                      >
+                        <Upload className="mr-2 inline h-4 w-4" />
+                        Entregar Resultado ao Cliente
+                      </button>
+                    )}
                   </div>
                 </div>
               </div>
