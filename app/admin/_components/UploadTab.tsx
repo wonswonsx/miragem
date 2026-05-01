@@ -87,7 +87,7 @@ export function UploadTab({ initialModels, suggestedTags }: Props) {
     fetchTags();
   }, [tagPool]);
 
-  // Filtrar tags baseado no input
+  // Filtrar tags baseado no input (usa availableTags para incluir tags recém-criadas)
   useEffect(() => {
     const input = tagInput.trim().toLowerCase();
     if (input === "") {
@@ -96,15 +96,15 @@ export function UploadTab({ initialModels, suggestedTags }: Props) {
       return;
     }
     
-    const filtered = tagPool.filter(tag => 
+    const filtered = availableTags.filter(tag => 
       tag.toLowerCase().includes(input) && !selectedTags.includes(tag)
     );
     setFilteredTags(filtered);
     
     // Mostrar opção de criar se não encontrar exatamente
-    const exactMatch = tagPool.some(tag => tag.toLowerCase() === input);
+    const exactMatch = availableTags.some(tag => tag.toLowerCase() === input);
     setShowCreateTag(!exactMatch && input.length > 0);
-  }, [tagInput, tagPool, selectedTags]);
+  }, [tagInput, availableTags, selectedTags]);
 
   // Adicionar tag existente
   const addExistingTag = useCallback((tag: string) => {
@@ -490,7 +490,7 @@ export function UploadTab({ initialModels, suggestedTags }: Props) {
     try {
       const fd = new FormData();
       fd.append("title", title.trim());
-      fd.append("description", description.trim());
+      fd.append("description", description.trim() || "Geração enviada pelo usuário");
       fd.append("tagsJson", JSON.stringify(selectedTags));
       fd.append("videoUrl", uploadedVideoUrl);
       if (categoryName.trim()) fd.append("categoryName", categoryName.trim());
@@ -732,7 +732,7 @@ export function UploadTab({ initialModels, suggestedTags }: Props) {
                   onKeyDown={handleTagInputKeyDown}
                   onFocus={() => {
                     if (tagInput.trim()) {
-                      const filtered = tagPool.filter(tag => 
+                      const filtered = availableTags.filter(tag => 
                         tag.toLowerCase().includes(tagInput.toLowerCase()) && !selectedTags.includes(tag)
                       );
                       setFilteredTags(filtered);
@@ -825,15 +825,22 @@ export function UploadTab({ initialModels, suggestedTags }: Props) {
                   <div className="max-h-[260px] overflow-auto p-1.5">
                     {(() => {
                       const q = categoryName.trim().toLowerCase();
+                      // Combinar categorias do banco + tags recém-criadas como sugestões
+                      const allSuggestions = [
+                        ...categories,
+                        ...availableTags
+                          .filter(t => !categories.some(c => c.name.toLowerCase() === t.toLowerCase()))
+                          .map(t => ({ id: `tag-${t}`, name: t })),
+                      ];
                       const filtered =
                         q === ""
-                          ? categories.slice(0, 18)
-                          : categories
+                          ? allSuggestions.slice(0, 18)
+                          : allSuggestions
                               .filter((c) => c.name.toLowerCase().includes(q))
                               .slice(0, 18);
 
                       const exact = q
-                        ? categories.some((c) => c.name.toLowerCase() === q)
+                        ? allSuggestions.some((c) => c.name.toLowerCase() === q)
                         : false;
 
                       return (
@@ -886,17 +893,6 @@ export function UploadTab({ initialModels, suggestedTags }: Props) {
               <p className="mt-1 text-[11px] text-[var(--muted)]">
                 Dica: digite um nome novo e publique — ele vira sugestão automaticamente no próximo upload.
               </p>
-            </div>
-            <div>
-              <label className="text-xs font-medium uppercase tracking-wider text-zinc-300">
-                Prompt
-              </label>
-              <textarea
-                className="mt-2 min-h-[120px] w-full rounded-2xl border border-zinc-700/50 bg-zinc-900/40 px-4 py-3 text-base text-zinc-100 placeholder-zinc-500 outline-none ring-2 ring-zinc-700/30 focus:border-blue-500/50 focus:ring-blue-500/20 focus:bg-zinc-900/60 transition-all duration-300"
-                value={description}
-                onChange={(e) => setDescription(e.target.value)}
-                placeholder="Descreva o vídeo, cena, estilo, referências..."
-              />
             </div>
             <div>
               <label className="text-xs text-[var(--muted)]">
