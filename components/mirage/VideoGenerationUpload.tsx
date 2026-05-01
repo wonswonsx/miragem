@@ -4,7 +4,7 @@ import { LoaderCircle, Upload, X, Download, Sparkles, Gem } from "lucide-react";
 import { useState, useCallback, useRef } from "react";
 import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
-import { createGenerationAction } from "@/app/actions/generation-actions";
+import { createGenerationAction, devAddDiamondsAction } from "@/app/actions/generation-actions";
 import { useDiamondsStore } from "@/lib/stores/useDiamondsStore";
 import type { GenerationStatus, GenerationType, Generation } from "@/types";
 
@@ -219,12 +219,14 @@ export function VideoGenerationUpload({ userId, onGenerateComplete }: VideoGener
       return;
     }
     setStatus('uploading');
+    console.log('[VideoGenUpload] 🚀 Iniciando fluxo de geração...', { tipo: mode, custo: cost, arquivo: selectedFile.name });
 
     try {
       const sb = createClient();
 
       // 1. Upload para bucket 'imagens' (precisa do File — fica no cliente)
       const fileName = `${userId}/${Date.now()}-${selectedFile.name}`;
+      console.log('[VideoGenUpload] Enviando arquivo para Storage...', fileName);
       const { error: uploadError } = await sb.storage
         .from('imagens')
         .upload(fileName, selectedFile, {
@@ -234,7 +236,7 @@ export function VideoGenerationUpload({ userId, onGenerateComplete }: VideoGener
         });
 
       if (uploadError) {
-        console.error('Erro no upload:', uploadError);
+        console.error('[VideoGenUpload] ❌ Erro no upload do Storage:', uploadError);
         throw new Error('Falha no upload: ' + uploadError.message);
       }
 
@@ -242,8 +244,10 @@ export function VideoGenerationUpload({ userId, onGenerateComplete }: VideoGener
       const { data: { publicUrl } } = sb.storage
         .from('imagens')
         .getPublicUrl(fileName);
+      console.log('[VideoGenUpload] ✅ Arquivo subiu para o Storage:', publicUrl);
 
       // 3. Server Action: débito + transação + insert em generations
+      console.log('[VideoGenUpload] Chamando server action createGenerationAction...');
       const result = await createGenerationAction({
         imageUrl: publicUrl,
         type: mode,
@@ -258,7 +262,7 @@ export function VideoGenerationUpload({ userId, onGenerateComplete }: VideoGener
       setDiamonds(result.newBalance);
 
       setUploadProgress(100);
-      console.log('Geração criada com sucesso!', { mode, cost, saldo_restante: result.newBalance });
+      console.log('[VideoGenUpload] ✅ Linha criada na tabela generations! Saldo restante:', result.newBalance);
 
       // 5. Limpar estado
       setSelectedFile(null);
@@ -271,11 +275,28 @@ export function VideoGenerationUpload({ userId, onGenerateComplete }: VideoGener
       }, 500);
 
     } catch (err) {
-      console.error('Erro na geração:', err);
+      console.error('[VideoGenUpload] ❌ Erro na geração:', err);
       setError(err instanceof Error ? err.message : 'Erro ao gerar vídeo');
       setStatus('failed');
     }
   }, [selectedFile, userId, router, setDiamonds]);
+
+  // DEV ONLY: botão para adicionar diamantes
+  const [devBusy, setDevBusy] = useState(false);
+  const handleDevAddDiamonds = useCallback(async () => {
+    setDevBusy(true);
+    try {
+      const res = await devAddDiamondsAction(1000);
+      if (res.ok && res.newBalance != null) {
+        setDiamonds(res.newBalance);
+        console.log(`[DEV] 💎 +1000 diamantes. Novo saldo: ${res.newBalance}`);
+      } else {
+        console.error('[DEV] Erro ao adicionar diamantes:', res.error);
+      }
+    } finally {
+      setDevBusy(false);
+    }
+  }, [setDiamonds]);
 
   const resetUpload = () => {
     setStatus('idle');
@@ -510,6 +531,18 @@ export function VideoGenerationUpload({ userId, onGenerateComplete }: VideoGener
             Tentar novamente
           </button>
         </div>
+      )}
+
+      {/* DEV ONLY: Botão secreto para adicionar diamantes */}
+      {process.env.NODE_ENV === 'development' && (
+        <button
+          type="button"
+          onClick={handleDevAddDiamonds}
+          disabled={devBusy}
+          className="w-full rounded-lg border border-dashed border-yellow-600/40 bg-yellow-950/30 px-3 py-2 text-xs font-mono text-yellow-400/80 transition hover:bg-yellow-900/30 disabled:opacity-50"
+        >
+          {devBusy ? 'Adicionando...' : '🔧 DEV: Add 1000 💎 Diamonds'}
+        </button>
       )}
     </div>
   );

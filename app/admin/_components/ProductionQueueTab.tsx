@@ -93,12 +93,14 @@ export function ProductionQueueTab() {
         .order("created_at", { ascending: true });
 
       if (error) {
-        console.error("[Queue] Erro ao buscar fila:", error);
+        console.error("[AdminQueue] Erro ao buscar fila:", error);
         return;
       }
-      setItems((data as unknown as QueueItem[]) ?? []);
+      const list = (data as unknown as QueueItem[]) ?? [];
+      console.log(`[AdminQueue] ✅ Fila carregada: ${list.length} item(ns)`);
+      setItems(list);
     } catch (err) {
-      console.error("[Queue] Erro:", err);
+      console.error("[AdminQueue] Erro:", err);
     } finally {
       setLoading(false);
     }
@@ -121,10 +123,13 @@ export function ProductionQueueTab() {
           const row = payload.new as Partial<QueueItem> | undefined;
           if (!row) return;
 
+          console.log(`[AdminQueue] 📡 Realtime recebido: ${payload.eventType}`, { id: row.id, status: row.status });
+
           if (
             payload.eventType === "INSERT" &&
             (row.status === "pending" || row.status === "processing")
           ) {
+            console.log("[AdminQueue] 🔔 Admin recebeu sinal Realtime — novo pedido!");
             playNotificationSound();
             setNewCount((c) => c + 1);
 
@@ -142,6 +147,7 @@ export function ProductionQueueTab() {
 
           if (payload.eventType === "UPDATE") {
             if (row.status === "completed" || row.status === "failed") {
+              console.log(`[AdminQueue] Item ${row.id} removido da fila (status: ${row.status})`);
               setItems((prev) => prev.filter((i) => i.id !== row.id));
             } else {
               fetchQueue();
@@ -168,6 +174,7 @@ export function ProductionQueueTab() {
   const handleUploadResult = useCallback(
     async (item: QueueItem, file: File) => {
       setUploadingId(item.id);
+      console.log(`[AdminQueue] 🚀 Iniciando upload de resultado para #${item.id.slice(0, 8)}...`, file.name);
 
       try {
         const sb = createClient();
@@ -182,6 +189,7 @@ export function ProductionQueueTab() {
         const {
           data: { publicUrl },
         } = sb.storage.from("imagens").getPublicUrl(path);
+        console.log(`[AdminQueue] ✅ Resultado subiu para o Storage:`, publicUrl);
 
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         const { error: updateErr } = await sb
@@ -195,12 +203,13 @@ export function ProductionQueueTab() {
 
         if (updateErr) throw new Error("Update falhou: " + updateErr.message);
 
+        console.log(`[AdminQueue] ✅ Tabela generations atualizada: status=completed, result_url preenchido`);
         pushToast("ok", `Resultado entregue para #${item.id.slice(0, 8)}!`);
         setItems((prev) => prev.filter((i) => i.id !== item.id));
         setSelected(null);
         setResultFile(null);
       } catch (err) {
-        console.error("[Queue] Erro upload resultado:", err);
+        console.error("[AdminQueue] ❌ Erro upload resultado:", err);
         pushToast(
           "err",
           err instanceof Error ? err.message : "Erro ao enviar resultado",

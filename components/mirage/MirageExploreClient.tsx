@@ -385,6 +385,7 @@ export function MirageExploreClient({
         }
 
         // 1. Verificar e debitar diamantes atomicamente
+        console.log('[ExploreGen] Verificando e debitando diamantes...', { cost, mode });
         const { data: debitResult, error: debitError } = await supabase
           .rpc('check_and_debit_diamonds' as any, {
             user_id_param: user.id,
@@ -392,7 +393,7 @@ export function MirageExploreClient({
           });
 
         if (debitError) {
-          console.error('Erro ao debitar diamantes:', debitError);
+          console.error('[ExploreGen] ❌ Erro ao debitar diamantes:', debitError);
           setModalToast({ type: 'error', msg: 'Erro ao processar diamantes. Tente novamente.' });
           return;
         }
@@ -410,6 +411,7 @@ export function MirageExploreClient({
         }
 
         // 2. Criar registro na tabela generations
+        console.log('[ExploreGen] Criando registro na tabela generations...');
         const { data: inserted, error: insertError } = await supabase
           .from('generations' as any)
           .insert({
@@ -424,12 +426,12 @@ export function MirageExploreClient({
           .single();
 
         if (insertError) {
-          console.error('Erro ao criar geração:', insertError);
+          console.error('[ExploreGen] ❌ Erro ao criar geração:', insertError);
           setModalToast({ type: 'error', msg: 'Erro ao criar pedido. Tente novamente.' });
           return;
         }
 
-        console.log('Geração criada:', { id: (inserted as any)?.id, mode, cost, saldo_restante: debit?.diamonds_after });
+        console.log('[ExploreGen] ✅ Linha criada na tabela generations:', { id: (inserted as any)?.id, mode, cost, saldo_restante: debit?.diamonds_after });
         setModalToast({ type: 'success', msg: `Pedido criado! Saldo restante: ${debit?.diamonds_after} 💎` });
 
         // Redirecionar após breve delay para o toast ser lido
@@ -439,7 +441,7 @@ export function MirageExploreClient({
         }, 1200);
 
       } catch (err) {
-        console.error('Erro no fluxo de geração:', err);
+        console.error('[ExploreGen] ❌ Erro no fluxo de geração:', err);
         setModalToast({ type: 'error', msg: 'Erro inesperado. Tente novamente.' });
       } finally {
         setGeneratingId(null);
