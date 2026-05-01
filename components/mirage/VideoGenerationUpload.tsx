@@ -4,8 +4,9 @@ import { LoaderCircle, Upload, X, Download, Sparkles, Gem } from "lucide-react";
 import { useState, useCallback, useRef } from "react";
 import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
-
-type GenerationStatus = 'idle' | 'uploading' | 'pending' | 'processing' | 'completed' | 'failed';
+import { createGenerationAction } from "@/app/actions/generation-actions";
+import { useDiamondsStore } from "@/lib/stores/useDiamondsStore";
+import type { GenerationStatus, GenerationType, Generation } from "@/types";
 
 interface VideoGenerationUploadProps {
   userId: string | null;
@@ -87,12 +88,13 @@ export function VideoGenerationUpload({ userId, onGenerateComplete }: VideoGener
         (payload) => {
           console.log('Status atualizado:', payload.new);
           
-          const newStatus = (payload.new as any).status;
-          const videoUrl = (payload.new as any).video_url;
+          const updated = payload.new as Partial<Generation>;
+          const newStatus = updated.status;
+          const videoUrl = updated.video_url;
           
           if (newStatus === 'completed') {
             setStatus('completed');
-            setFinalVideoUrl(videoUrl);
+            setFinalVideoUrl(videoUrl ?? null);
             setUploadProgress(100);
             sb.removeChannel(channel);
           } else if (newStatus === 'failed') {
@@ -107,8 +109,8 @@ export function VideoGenerationUpload({ userId, onGenerateComplete }: VideoGener
     // Fallback com polling caso Realtime falhe
     const pollInterval = setInterval(async () => {
       try {
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
         const { data, error } = await sb
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
           .from('generations' as any)
           .select('status, video_url')
           .eq('id', genId)
@@ -119,7 +121,7 @@ export function VideoGenerationUpload({ userId, onGenerateComplete }: VideoGener
           return;
         }
 
-        const generation = data as unknown as { status: string; video_url: string | null };
+        const generation = data as unknown as Pick<Generation, 'status' | 'video_url'>;
         
         if (generation.status === 'completed') {
           clearInterval(pollInterval);
@@ -197,7 +199,10 @@ export function VideoGenerationUpload({ userId, onGenerateComplete }: VideoGener
     }
   }, []);
 
-  const handleGenerateVideo = useCallback(async (mode: 'padrao' | 'estendido' = 'padrao', cost: number = 50) => {
+  const debitDiamonds = useDiamondsStore((s) => s.debitDiamonds);
+  const setDiamonds = useDiamondsStore((s) => s.setDiamonds);
+
+  const handleGenerateVideo = useCallback(async (mode: GenerationType = 'padrao', cost: number = 50) => {
     // Limpar estados anteriores imediatamente
     setError(null);
     setUploadProgress(0);
@@ -218,40 +223,7 @@ export function VideoGenerationUpload({ userId, onGenerateComplete }: VideoGener
     try {
       const sb = createClient();
 
-      // 1. Buscar saldo atual de diamantes
-      const { data: profile, error: profileFetchErr } = await sb
-        .from('profiles')
-        .select('diamonds')
-        .eq('id', userId)
-        .single();
-
-      if (profileFetchErr) {
-        console.error('Erro ao buscar perfil:', profileFetchErr);
-        throw new Error('Erro ao verificar saldo: ' + profileFetchErr.message);
-      }
-
-      const currentDiamonds = (profile as any)?.diamonds ?? 0;
-      console.log('Saldo atual:', currentDiamonds, '| Custo:', cost);
-
-      if (currentDiamonds < cost) {
-        throw new Error(`Diamantes insuficientes. Você tem ${currentDiamonds} 💎 e precisa de ${cost} 💎.`);
-      }
-
-      // 2. Debitar diamantes (update direto)
-      const novoSaldo = currentDiamonds - cost;
-      const { error: debitError } = await sb
-        .from('profiles')
-        .update({ diamonds: novoSaldo })
-        .eq('id', userId);
-
-      if (debitError) {
-        console.error('Erro real no Supabase (debit):', debitError);
-        throw new Error('Falha ao debitar: ' + debitError.message);
-      }
-
-      console.log('Débito OK. Novo saldo:', novoSaldo);
-
-      // 3. Upload para bucket 'imagens'
+      // 1. Upload para bucket 'imagens' (precisa do File — fica no cliente)
       const fileName = `${userId}/${Date.now()}-${selectedFile.name}`;
       const { error: uploadError } = await sb.storage
         .from('imagens')
@@ -263,51 +235,37 @@ export function VideoGenerationUpload({ userId, onGenerateComplete }: VideoGener
 
       if (uploadError) {
         console.error('Erro no upload:', uploadError);
-        throw uploadError;
+        throw new Error('Falha no upload: ' + uploadError.message);
       }
 
-      // 4. Obter URL pública
+      // 2. Obter URL pública
       const { data: { publicUrl } } = sb.storage
         .from('imagens')
         .getPublicUrl(fileName);
 
-      // 5. Registrar transação (log, não bloqueia)
-      sb.from('transactions' as any)
-        .insert({
-          user_id: userId,
-          amount: -cost,
-          type: mode === 'estendido' ? 'generation_extended' : 'generation',
-          description: `Geração de vídeo ${mode === 'estendido' ? 'estendida' : 'padrão'} (${cost} 💎)`,
-        })
-        .then(({ error: txErr }) => {
-          if (txErr) console.error('Erro Supabase (transactions):', txErr);
-        });
+      // 3. Server Action: débito + transação + insert em generations
+      const result = await createGenerationAction({
+        imageUrl: publicUrl,
+        type: mode,
+        cost,
+      });
 
-      // 6. Criar registro em generations
-      const { error: generationError } = await sb
-        .from('generations' as any)
-        .insert({
-          user_id: userId,
-          image_url: publicUrl,
-          status: 'processing',
-          type: mode,
-          diamond_cost: cost,
-        });
-
-      if (generationError) {
-        console.error('Erro ao criar geração:', generationError);
-        throw new Error('Erro ao registrar geração: ' + generationError.message);
+      if (!result.ok) {
+        throw new Error(result.error);
       }
 
-      setUploadProgress(100);
-      console.log('Geração criada com sucesso!', { mode, cost, saldo_restante: novoSaldo });
+      // 4. Atualizar Zustand store com novo saldo
+      setDiamonds(result.newBalance);
 
-      // 7. Limpar estado
+      setUploadProgress(100);
+      console.log('Geração criada com sucesso!', { mode, cost, saldo_restante: result.newBalance });
+
+      // 5. Limpar estado
       setSelectedFile(null);
       setPreviewUrl(null);
       setStatus('idle');
 
-      // 8. Redirecionar para /minhas-geracoes após breve delay
+      // 6. Redirecionar para /minhas-geracoes após breve delay
       setTimeout(() => {
         router.push('/minhas-geracoes');
       }, 500);
@@ -317,7 +275,7 @@ export function VideoGenerationUpload({ userId, onGenerateComplete }: VideoGener
       setError(err instanceof Error ? err.message : 'Erro ao gerar vídeo');
       setStatus('failed');
     }
-  }, [selectedFile, userId, router]);
+  }, [selectedFile, userId, router, setDiamonds]);
 
   const resetUpload = () => {
     setStatus('idle');

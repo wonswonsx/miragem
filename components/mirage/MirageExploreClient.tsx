@@ -23,6 +23,7 @@ import type { AuthChangeEvent, Session } from "@supabase/supabase-js";
 import { Gem, Search, Sparkles, LoaderCircle, X, CheckCircle2 } from "lucide-react";
 import Link from "next/link";
 import { VideoGenerationUpload } from "@/components/mirage/VideoGenerationUpload";
+import { UploadErrorBoundary } from "@/components/mirage/UploadErrorBoundary";
 import { usePathname, useRouter } from "next/navigation";
 import type { DependencyList } from "react";
 import {
@@ -320,7 +321,9 @@ function ExploreDetailModalActions({
 }) {
   return (
     <div className={className}>
-      <VideoGenerationUpload userId={userId} />
+      <UploadErrorBoundary>
+        <VideoGenerationUpload userId={userId} />
+      </UploadErrorBoundary>
     </div>
   );
 }
@@ -1094,7 +1097,9 @@ export function MirageExploreClient({
               {/* Lado Direito - Upload e Ação */}
               <div className="flex flex-col h-full">
                 <div className="flex-1">
-                  <VideoGenerationUpload userId={userId} />
+                  <UploadErrorBoundary>
+                    <VideoGenerationUpload userId={userId} />
+                  </UploadErrorBoundary>
                 </div>
               </div>
             </div>

@@ -33,6 +33,10 @@ type DiamondsState = {
   diamonds: number;
   loadDiamonds: (userEmail: string) => Promise<void>;
   creditDiamonds: (amount: number) => Promise<void>;
+  /** Subtrai localmente (o server action já debitou no banco). */
+  debitDiamonds: (amount: number) => void;
+  /** Força um valor específico (ex: após resposta do server action). */
+  setDiamonds: (value: number) => void;
   reset: () => void;
 };
 
@@ -41,6 +45,14 @@ export const useDiamondsStore = create<DiamondsState>((set, get) => ({
 
   reset: () => {
     set({ diamonds: 0 });
+  },
+
+  debitDiamonds: (amount: number) => {
+    set((s) => ({ diamonds: Math.max(0, s.diamonds - Math.floor(amount)) }));
+  },
+
+  setDiamonds: (value: number) => {
+    set({ diamonds: Math.max(0, Math.floor(value)) });
   },
 
   loadDiamonds: async (userEmail: string) => {
