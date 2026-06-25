@@ -1,17 +1,20 @@
 import type { Metadata } from "next";
 import { Inter, JetBrains_Mono } from "next/font/google";
 import { AgeGateModal } from "@/components/AgeGateModal";
+import { WhatsAppFloatButton } from "@/components/WhatsAppFloatButton";
 import "./globals.css";
 
 const inter = Inter({
   subsets: ["latin"],
   display: "swap",
+  preload: true,
 });
 
 const jetbrainsMono = JetBrains_Mono({
   subsets: ["latin"],
   variable: "--font-mono",
   display: "swap",
+  preload: false,
 });
 
 export const metadata: Metadata = {
@@ -30,6 +33,7 @@ export default function RootLayout({
         className={`${inter.className} ${jetbrainsMono.variable} min-h-screen antialiased`}
       >
         <AgeGateModal />
+        <WhatsAppFloatButton />
         {children}
       </body>
     </html>

@@ -93,7 +93,7 @@ export async function createGenerationAction(params: {
     description: `Geração de vídeo ${type === "estendido" ? "estendida" : "padrão"} (${cost} 💎)`,
   };
 
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+   
   sb.from("transactions" as any)
     .insert(tx as any)
     .then(({ error: txErr }) => {
@@ -106,11 +106,13 @@ export async function createGenerationAction(params: {
     user_id: userId,
     image_url: imageUrl,
     type,
+    mode: type,
+    audio_enabled: false,
     diamond_cost: cost,
     status: "processing",
   };
 
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+   
   const { error: genErr } = await sb
     .from("generations" as any)
     .insert(gen as any);

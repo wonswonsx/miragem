@@ -1,6 +1,14 @@
 "use client";
 
 import { DarkAppHeader } from "@/components/DarkAppHeader";
+import {
+  friendlyAuthErrorMessage,
+  friendlyPasswordResetErrorMessage,
+} from "@/lib/auth/userMessages";
+import {
+  buildAuthCallbackUrl,
+  buildPasswordResetRedirectUrl,
+} from "@/lib/publicAppUrl";
 import { isSupabaseConfigured, supabase } from "@/lib/supabaseClient";
 import { Loader2, LogIn } from "lucide-react";
 import { useRouter, useSearchParams } from "next/navigation";
@@ -67,10 +75,7 @@ function LoginForm() {
     }
     setGoogleLoading(true);
     try {
-      const origin = window.location.origin;
-      const afterLoginPath = "/explore";
-      /** Deve coincidir com uma URL em Authentication → URL Configuration no Supabase. */
-      const redirectTo = `${origin}/auth/callback?next=${encodeURIComponent(afterLoginPath)}`;
+      const redirectTo = buildAuthCallbackUrl(window.location.origin, "/explore");
 
       const { data, error } = await supabase.auth.signInWithOAuth({
         provider: "google",
@@ -78,11 +83,15 @@ function LoginForm() {
       });
 
       if (error) {
-        setFormError(error.message);
+        console.error("[login] signInWithOAuth (google):", error);
+        setFormError(friendlyAuthErrorMessage(error, "Não foi possível iniciar o login com Google."));
         return;
       }
       if (data.url) {
         window.location.assign(data.url);
+      } else {
+        console.error("[login] signInWithOAuth: resposta sem URL de redirecionamento");
+        setFormError("Não foi possível iniciar o login com Google. Tente novamente.");
       }
     } finally {
       setGoogleLoading(false);
@@ -103,11 +112,13 @@ function LoginForm() {
     }
     setResetSending(true);
     try {
+      const redirectTo = buildPasswordResetRedirectUrl(window.location.origin);
       const { error } = await supabase.auth.resetPasswordForEmail(trimmed, {
-        redirectTo: `${window.location.origin}/auth/reset-password`,
+        redirectTo,
       });
       if (error) {
-        setForgotError(error.message);
+        console.error("[login] resetPasswordForEmail:", error);
+        setForgotError(friendlyPasswordResetErrorMessage(error));
         return;
       }
       setInfo(
@@ -132,15 +143,14 @@ function LoginForm() {
 
     setLoading(true);
     try {
-      const origin = window.location.origin;
-
       if (mode === "login") {
         const { error } = await supabase.auth.signInWithPassword({
           email: email.trim(),
           password,
         });
         if (error) {
-          setFormError(error.message);
+          console.error("[login] signInWithPassword:", error);
+          setFormError(friendlyAuthErrorMessage(error, "Não foi possível entrar. Verifique e-mail e senha."));
           return;
         }
         router.push(next);
@@ -152,11 +162,12 @@ function LoginForm() {
         email: email.trim(),
         password,
         options: {
-          emailRedirectTo: `${origin}/auth/callback?next=${encodeURIComponent(next)}`,
+          emailRedirectTo: buildAuthCallbackUrl(window.location.origin, next),
         },
       });
       if (error) {
-        setFormError(error.message);
+        console.error("[login] signUp:", error);
+        setFormError(friendlyAuthErrorMessage(error, "Não foi possível criar a conta. Tente novamente."));
         return;
       }
       if (data.session) {

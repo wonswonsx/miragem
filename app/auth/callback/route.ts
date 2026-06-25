@@ -7,6 +7,13 @@ export async function GET(request: Request) {
   const { searchParams, origin } = new URL(request.url);
   const code = searchParams.get("code");
   const next = searchParams.get("next") ?? "/";
+  const oauthError = searchParams.get("error");
+  const oauthErrorDescription = searchParams.get("error_description");
+
+  if (oauthError) {
+    console.error("[auth/callback] OAuth error:", oauthError, oauthErrorDescription);
+    return NextResponse.redirect(`${origin}/login?error=auth`);
+  }
 
   if (code) {
     const cookieStore = await cookies();
@@ -15,7 +22,8 @@ export async function GET(request: Request) {
     if (url && key) {
       try {
         assertBrowserSafeSupabaseKey(key, "auth/callback");
-      } catch {
+      } catch (err) {
+        console.error("[auth/callback] chave Supabase inválida:", err);
         return NextResponse.redirect(`${origin}/login?error=auth`);
       }
       const supabase = createServerClient(url, key, {
@@ -34,7 +42,12 @@ export async function GET(request: Request) {
       if (!error) {
         return NextResponse.redirect(`${origin}${next}`);
       }
+      console.error("[auth/callback] exchangeCodeForSession:", error.message, error);
+    } else {
+      console.error("[auth/callback] NEXT_PUBLIC_SUPABASE_URL ou ANON_KEY ausentes");
     }
+  } else {
+    console.error("[auth/callback] callback sem code na query string");
   }
 
   return NextResponse.redirect(`${origin}/login?error=auth`);

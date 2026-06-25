@@ -62,7 +62,7 @@ export function UploadTab({ initialModels, suggestedTags }: Props) {
       try {
         const sb = createClient();
         const { data, error } = await sb
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+           
           .from('tags' as any)
           .select('name')
           .order('name');
@@ -74,7 +74,7 @@ export function UploadTab({ initialModels, suggestedTags }: Props) {
           return;
         }
         
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+         
         const tagNames = (data || []).map((tag: any) => tag.name).filter(Boolean);
         setAvailableTags(tagNames);
       } catch (err) {

@@ -1,6 +1,10 @@
 "use client";
 
 import { createClient } from "@/lib/supabase/client";
+import {
+  formatAdminNewOrderMessage,
+  isPendingGenerationStatus,
+} from "@/lib/adminNewOrderMessage";
 import { playNotificationSound } from "@/lib/playNotificationSound";
 import {
   LoaderCircle,
@@ -30,13 +34,14 @@ type QueueItem = {
   video_url: string | null;
   result_url: string | null;
   type: string | null;
-  status: "pending" | "processing" | "completed" | "failed";
+  status: "pending" | "processing" | "completed" | "failed" | "pendente" | string;
   diamond_cost: number;
   created_at: string;
   updated_at: string;
   completed_at: string | null;
   client_email: string | null;
   client_name: string | null;
+  card_name?: string | null;
 };
 
 type FloatingToast = {
@@ -47,7 +52,9 @@ type FloatingToast = {
 
 const STATUS_LABELS: Record<string, string> = {
   pending: "Pendente",
+  pendente: "Pendente",
   processing: "Em produção",
+  processando: "Em produção",
 };
 
 let toastCounter = 0;
@@ -86,7 +93,7 @@ export function ProductionQueueTab() {
   const fetchQueue = useCallback(async () => {
     try {
       const sb = createClient();
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+       
       const { data, error } = await sb
         .from("admin_queue" as any)
         .select("*")
@@ -108,6 +115,10 @@ export function ProductionQueueTab() {
 
   useEffect(() => {
     fetchQueue();
+    const pollId = window.setInterval(() => {
+      void fetchQueue();
+    }, 15000);
+    return () => window.clearInterval(pollId);
   }, [fetchQueue]);
 
   /* ── Realtime: escuta generations → re-fetch admin_queue ── */
@@ -123,26 +134,28 @@ export function ProductionQueueTab() {
           const row = payload.new as Partial<QueueItem> | undefined;
           if (!row) return;
 
-          console.log(`[AdminQueue] 📡 Realtime recebido: ${payload.eventType}`, { id: row.id, status: row.status });
+          console.log(`[AdminQueue] 📡 Realtime recebido: ${payload.eventType}`, {
+            id: row.id,
+            status: row.status,
+            card_name: row.card_name,
+          });
 
           if (
             payload.eventType === "INSERT" &&
-            (row.status === "pending" || row.status === "processing")
+            isPendingGenerationStatus(row.status)
           ) {
             console.log("[AdminQueue] 🔔 Admin recebeu sinal Realtime — novo pedido!");
             playNotificationSound();
             setNewCount((c) => c + 1);
 
-            // Re-fetch para obter client_name da view
-            await fetchQueue();
+            pushToast(
+              "info",
+              formatAdminNewOrderMessage(row, {
+                clientLabel: row.client_name || row.client_email,
+              }),
+            );
 
-            // Toast com nome do cliente (pegar da lista atualizada)
-            setItems((current) => {
-              const found = current.find((i) => i.id === row.id);
-              const name = found?.client_name || found?.client_email || "Cliente";
-              pushToast("info", `Novo pedido de ${name}!`);
-              return current;
-            });
+            await fetchQueue();
           }
 
           if (payload.eventType === "UPDATE") {
@@ -191,7 +204,7 @@ export function ProductionQueueTab() {
         } = sb.storage.from("imagens").getPublicUrl(path);
         console.log(`[AdminQueue] ✅ Resultado subiu para o Storage:`, publicUrl);
 
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+         
         const { error: updateErr } = await sb
           .from("generations" as any)
           .update({
@@ -330,11 +343,11 @@ export function ProductionQueueTab() {
               onDragLeave={onDragLeave}
               onDrop={(e) => onDrop(e, item)}
             >
-              <div className="flex flex-col gap-4 p-4 sm:flex-row sm:items-center">
+              <div className="flex flex-nowrap items-start gap-3 p-4 md:items-center">
                 {/* Miniatura clicável */}
                 <button
                   type="button"
-                  className="group/thumb relative h-20 w-14 shrink-0 overflow-hidden rounded-lg bg-black"
+                  className="group/thumb relative h-[4.5rem] w-14 shrink-0 overflow-hidden rounded-lg bg-black md:h-20"
                   onClick={() =>
                     item.image_url && setPreviewUrl(item.image_url)
                   }
@@ -360,10 +373,14 @@ export function ProductionQueueTab() {
                   )}
                 </button>
 
+                <div className="flex min-w-0 flex-1 flex-col gap-2">
                 {/* Info */}
-                <div className="min-w-0 flex-1 space-y-0.5">
+                <div className="min-w-0 space-y-0.5">
+                  <div className="truncate text-sm font-semibold text-violet-200">
+                    {item.card_name?.trim() || "Modelo sem nome"}
+                  </div>
                   <div className="flex items-center gap-2">
-                    <span className="truncate text-sm font-medium text-[#e9d5ff]">
+                    <span className="truncate text-xs font-medium text-[#e9d5ff]">
                       {item.client_name || item.client_email || "—"}
                     </span>
                     <span
@@ -379,7 +396,7 @@ export function ProductionQueueTab() {
                   <div className="text-xs text-[rgba(232,224,240,0.5)]">
                     {item.client_email}
                   </div>
-                  <div className="flex items-center gap-3 text-xs text-[rgba(232,224,240,0.5)]">
+                  <div className="flex flex-wrap items-center gap-2 text-xs text-[rgba(232,224,240,0.5)]">
                     <span>
                       {new Date(item.created_at).toLocaleString("pt-BR", {
                         dateStyle: "short",
@@ -409,7 +426,7 @@ export function ProductionQueueTab() {
                 </div>
 
                 {/* Ações */}
-                <div className="flex shrink-0 items-center gap-2">
+                <div className="flex flex-wrap items-center gap-2">
                   {/* Baixar Arquivo Original */}
                   {item.image_url && (
                     <a
@@ -471,6 +488,7 @@ export function ProductionQueueTab() {
                     Detalhes
                   </button>
                 </div>
+                </div>
               </div>
             </div>
           ))}
@@ -490,7 +508,7 @@ export function ProductionQueueTab() {
           >
             <X className="h-5 w-5" />
           </button>
-          {/* eslint-disable-next-line @next/next/no-img-element */}
+          { }
           <img
             src={previewUrl}
             alt="Preview em tamanho real"
@@ -540,6 +558,9 @@ export function ProductionQueueTab() {
                   Pedido #{selected.id.slice(0, 8)}
                 </h3>
                 <div className="space-y-1 text-sm text-[rgba(232,224,240,0.8)]">
+                  <div>
+                    Modelo: {selected.card_name?.trim() || "—"}
+                  </div>
                   <div>
                     Cliente:{" "}
                     {selected.client_name || selected.client_email}
@@ -672,7 +693,7 @@ export function ProductionQueueTab() {
                               controls
                             />
                           ) : (
-                            // eslint-disable-next-line @next/next/no-img-element
+                             
                             <img
                               src={URL.createObjectURL(resultFile)}
                               alt="Preview"

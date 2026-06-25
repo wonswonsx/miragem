@@ -1,8 +1,16 @@
 import { isStaff } from "@/lib/auth/staff";
+import {
+  ADMIN_PEDIDOS_FETCH_LIMIT,
+  ADMIN_PEDIDOS_SELECT,
+  filterAdminQueuePedidos,
+  sortPedidosByCreatedAtDesc,
+} from "@/lib/adminPedidosQuery";
+import type { AdminPedido } from "@/app/admin/pedidos/AdminPedidosTicketClient";
 import { createClient } from "@/lib/supabase/server";
 import { createServiceRoleClient } from "@/lib/supabase/service-role";
 import { redirect } from "next/navigation";
 import { AdminTabs } from "@/app/admin/components/AdminTabs";
+import { toAdminProfileRow } from "@/lib/adminProfileRow";
 
 export const dynamic = "force-dynamic";
 
@@ -26,24 +34,24 @@ export default async function AdminPage() {
   const [videosRes, profilesRes, generationsRes] = await Promise.all([
     sb
       .from("videos")
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+       
       .select("id, title, video_url, thumbnail_url, prompt, video_tags!inner(tags!inner(name))")
       .order("id", { ascending: false }),
     sb.from("profiles").select("*").order("created_at", { ascending: false }),
     sb
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      .from("generations" as any)
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      .select(`
-        *,
-        profiles!inner(email, display_name)
-      `)
-      .order("created_at", { ascending: false }),
+      .from("generations" as never)
+      .select(ADMIN_PEDIDOS_SELECT)
+      .order("created_at", { ascending: false })
+      .limit(ADMIN_PEDIDOS_FETCH_LIMIT),
   ]);
 
   const videos = videosRes.data || [];
-  const profiles = profilesRes.data || [];
-  const generations = generationsRes.data || [];
+  const profiles = (profilesRes.data ?? []).map(toAdminProfileRow);
+  const generations = sortPedidosByCreatedAtDesc(
+    filterAdminQueuePedidos(
+      (generationsRes.data ?? []) as unknown as AdminPedido[],
+    ),
+  );
 
   return <AdminTabs initialVideos={videos} initialProfiles={profiles} initialGenerations={generations} />;
 }

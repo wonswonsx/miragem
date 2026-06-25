@@ -10,9 +10,15 @@ const Stripe = require('stripe');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
-const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || '1234';
-const STRIPE_SECRET_KEY = process.env.STRIPE_SECRET_KEY || 'sk_test_51TBQwqA20NuqsR1Bf8OPUUiivchRpHE7eUXnvdqGV9ips20Y4mPoQXL0hHwgdLyVrF73nhalvXhSrtjF74LdGi0o00RCHBUNmS';
+const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD;
+const STRIPE_SECRET_KEY = process.env.STRIPE_SECRET_KEY;
 const STRIPE_WEBHOOK_SECRET = process.env.STRIPE_WEBHOOK_SECRET || '';
+if (!ADMIN_PASSWORD) {
+  throw new Error('ADMIN_PASSWORD não configurada');
+}
+if (!STRIPE_SECRET_KEY) {
+  throw new Error('STRIPE_SECRET_KEY não configurada');
+}
 const stripe = new Stripe(STRIPE_SECRET_KEY);
 
 app.use(cors());

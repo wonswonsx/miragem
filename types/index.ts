@@ -8,6 +8,8 @@ export interface Generation {
   image_url: string | null;
   video_url: string | null;
   type: GenerationType;
+  mode?: GenerationType | null;
+  audio_enabled?: boolean;
   diamond_cost: number;
   status: GenerationStatus;
   created_at: string;
@@ -16,10 +18,12 @@ export interface Generation {
 
 export interface GenerationInsert {
   user_id: string;
-  image_url: string;
+  image_url: string | null;
   type: GenerationType;
+  mode?: GenerationType;
+  audio_enabled?: boolean;
   diamond_cost: number;
-  status: 'processing';
+  status: 'processing' | 'pendente' | 'pending';
 }
 
 export interface TransactionInsert {

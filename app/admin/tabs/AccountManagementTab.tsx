@@ -55,7 +55,7 @@ export function AccountManagementTab({ initialProfiles }: AccountManagementTabPr
     try {
       const sb = createClient()
       
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+       
       const { error } = await sb
         .from('profiles' as any)
         .update({ 
@@ -94,7 +94,7 @@ export function AccountManagementTab({ initialProfiles }: AccountManagementTabPr
     try {
       const sb = createClient()
       
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+       
       const { error } = await sb
         .from('profiles' as any)
         .update({ is_active: !currentStatus })
@@ -130,7 +130,7 @@ export function AccountManagementTab({ initialProfiles }: AccountManagementTabPr
     try {
       const sb = createClient()
       
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+       
       const { error } = await sb
         .from('profiles' as any)
         .update({ 

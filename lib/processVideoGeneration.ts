@@ -33,6 +33,6 @@ export async function invokeProcessVideoGeneration(
   sb: SupabaseClient<Database>,
   params: { p_user_id: string; p_model_id: string; p_cost: number },
 ): Promise<{ data: unknown; error: { message: string } | null }> {
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+   
   return (sb.rpc as any)("process_video_generation", params);
 }

@@ -110,7 +110,7 @@ export function VideoGenerationUpload({ userId, onGenerateComplete }: VideoGener
     const pollInterval = setInterval(async () => {
       try {
         const { data, error } = await sb
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+           
           .from('generations' as any)
           .select('status, video_url')
           .eq('id', genId)
@@ -269,10 +269,10 @@ export function VideoGenerationUpload({ userId, onGenerateComplete }: VideoGener
       setPreviewUrl(null);
       setStatus('idle');
 
-      // 6. Redirecionar para /minhas-geracoes após breve delay
+      // 6. Redirecionar para /minhas-geracoes após delay maior para garantir que a transação no banco foi finalizada
       setTimeout(() => {
         router.push('/minhas-geracoes');
-      }, 500);
+      }, 1500);
 
     } catch (err) {
       console.error('[VideoGenUpload] ❌ Erro na geração:', err);
@@ -389,7 +389,7 @@ export function VideoGenerationUpload({ userId, onGenerateComplete }: VideoGener
           onDrop={handleDrop}
           onDragOver={handleDragOver}
           onClick={() => fileInputRef.current?.click()}
-          className="h-56 w-64 relative overflow-hidden rounded-xl border-2 border-dashed border-zinc-700 bg-zinc-900/50 cursor-pointer transition-all duration-200 hover:border-violet-500/50 hover:bg-white/5 hover:shadow-[0_0_20px_rgba(147,112,219,0.1)]"
+          className="relative h-[clamp(8rem,40vw,14rem)] w-full max-w-sm overflow-hidden rounded-xl border-2 border-dashed border-zinc-700 bg-zinc-900/50 cursor-pointer transition-all duration-200 hover:border-violet-500/50 hover:bg-white/5 hover:shadow-[0_0_20px_rgba(147,112,219,0.1)]"
         >
           <input
             ref={fileInputRef}

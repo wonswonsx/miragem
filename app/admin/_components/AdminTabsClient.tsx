@@ -7,7 +7,8 @@ import {
   DiamondTransactionsTab,
   type DiamondTxRow,
 } from "@/app/admin/_components/DiamondTransactionsTab";
-import { GenerationsTab } from "@/app/admin/_components/GenerationsTab";
+import { DeliveryTab } from "@/app/admin/tabs/DeliveryTab";
+import type { AdminPedido } from "@/app/admin/pedidos/AdminPedidosTicketClient";
 import { ProductionQueueTab } from "@/app/admin/_components/ProductionQueueTab";
 import { UploadTab } from "@/app/admin/_components/UploadTab";
 
@@ -17,6 +18,7 @@ type Props = {
   initialModels: VideoRow[];
   initialProfiles: AdminProfileRow[];
   initialDiamondTransactions: DiamondTxRow[];
+  initialGenerations?: AdminPedido[];
   suggestedTags: string[];
 };
 
@@ -24,24 +26,16 @@ export function AdminTabsClient({
   initialModels,
   initialProfiles,
   initialDiamondTransactions,
+  initialGenerations = [],
   suggestedTags,
 }: Props) {
   const [tab, setTab] = useState<AdminTabId>("upload");
-  const profileById = useState(() => {
-    const m = new Map<string, string>();
-    for (const p of initialProfiles) {
-      const name = p.display_name?.trim() || p.email?.trim() || p.id;
-      m.set(p.id, name);
-    }
-    return m;
-  })[0];
-
   const tabBtn = (id: AdminTabId, label: string) => (
     <button
       key={id}
       type="button"
       onClick={() => setTab(id)}
-      className={`rounded-full px-4 py-2 text-sm font-semibold transition ${
+      className={`min-h-11 rounded-full px-4 py-2.5 text-sm font-semibold transition ${
         tab === id
           ? "bg-gradient-to-r from-violet-600 to-fuchsia-600 text-white shadow-lg shadow-violet-900/40"
           : "border border-[rgba(147,112,219,0.25)] bg-black/30 text-violet-200/80 hover:border-violet-400/40 hover:text-violet-100"
@@ -52,7 +46,7 @@ export function AdminTabsClient({
   );
 
   return (
-    <div className="space-y-6">
+    <div className="mx-auto max-w-7xl space-y-6 px-4 py-6">
       <nav
         className="flex flex-wrap gap-2 border-b border-[rgba(147,112,219,0.2)] pb-4"
         aria-label="Secções do painel"
@@ -68,7 +62,7 @@ export function AdminTabsClient({
         <UploadTab initialModels={initialModels} suggestedTags={suggestedTags} />
       ) : null}
       {tab === "pedidos" ? (
-        <GenerationsTab />
+        <DeliveryTab initialGenerations={initialGenerations} />
       ) : null}
       {tab === "producao" ? (
         <ProductionQueueTab />

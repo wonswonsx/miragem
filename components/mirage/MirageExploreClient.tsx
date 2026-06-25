@@ -7,24 +7,16 @@ import {
   getTagsForItem,
   isNewItem,
   itemKey,
-  parseTagsFromPromptSuffix,
   type MediaItem,
   type SortOrder,
 } from "@/lib/mirageMedia";
-import {
-  invokeProcessVideoGeneration,
-  parseProcessVideoGenerationResult,
-  PROCESS_VIDEO_GENERATION_COST,
-} from "@/lib/processVideoGeneration";
-import { getVideoThumbnailUrl } from "@/lib/videoThumb";
+import { videoRowToMediaItem } from "@/lib/videoRowToMediaItem";
 import { isSupabaseConfigured, supabase } from "@/lib/supabaseClient";
 import type { VideoRow } from "@/types/database";
 import type { AuthChangeEvent, Session } from "@supabase/supabase-js";
-import { Gem, Search, Sparkles, LoaderCircle, X, CheckCircle2 } from "lucide-react";
+import { Gem, Search, Sparkles, LoaderCircle } from "lucide-react";
 import Link from "next/link";
-import { VideoGenerationUpload } from "@/components/mirage/VideoGenerationUpload";
-import { UploadErrorBoundary } from "@/components/mirage/UploadErrorBoundary";
-import { usePathname, useRouter } from "next/navigation";
+import { useRouter } from "next/navigation";
 import type { DependencyList } from "react";
 import {
   useCallback,
@@ -35,9 +27,9 @@ import {
 } from "react";
 import { useInView } from "react-intersection-observer";
 
-/** Página inicial `/`: sem paginação visual — exibe todos os vídeos carregados. */
+/** PÃ¡gina inicial `/`: sem paginaÃ§Ã£o visual â€” exibe todos os vÃ­deos carregados. */
 const BATCH_HOME = 200;
-/** `/explore`: 10 vídeos por pedido ao Supabase + scroll infinito. */
+/** `/explore`: 10 vÃ­deos por pedido ao Supabase + scroll infinito. */
 const BATCH_EXPLORE_DB = 10;
 
 function VideoThumb({ item }: { item: MediaItem }) {
@@ -108,18 +100,12 @@ function VideoThumb({ item }: { item: MediaItem }) {
 
 function ExploreGridCard({
   item,
-  onOpen,
+  onSelectCard,
   onTagClick,
-  onGenerateClick,
-  onOpenUploadModal,
-  generateBusy,
 }: {
   item: MediaItem;
-  onOpen: (item: MediaItem) => void;
+  onSelectCard: (item: MediaItem) => void;
   onTagClick: (tag: string) => void;
-  onGenerateClick: (item: MediaItem) => void | Promise<void>;
-  onOpenUploadModal: (item: MediaItem) => void;
-  generateBusy: boolean;
 }) {
   const itemIsNew = isNewItem(item);
   const tags = getTagsForItem(item);
@@ -127,11 +113,12 @@ function ExploreGridCard({
 
   return (
     <article
-      className="mirage-explore-card group cursor-pointer overflow-hidden rounded-2xl border border-[rgba(147,112,219,0.12)] bg-[rgba(25,12,38,0.9)] opacity-0 shadow-none transition-[opacity,transform] duration-500 data-[visible=true]:translate-y-0 data-[visible=true]:opacity-100 [&:not([data-visible=true])]:translate-y-5"
+      className="mirage-explore-card group flex cursor-pointer flex-col overflow-hidden rounded-2xl border border-[rgba(147,112,219,0.12)] bg-[rgba(25,12,38,0.9)] opacity-0 shadow-none transition-[opacity,transform] duration-500 max-sm:translate-y-0 max-sm:opacity-100 data-[visible=true]:translate-y-0 data-[visible=true]:opacity-100 [&:not([data-visible=true])]:translate-y-5"
       data-visible="false"
       onClick={(e) => {
         if ((e.target as HTMLElement).closest("button")) return;
-        onOpen(item);
+        if (item.type !== "video" || !item.id) return;
+        onSelectCard(item);
       }}
     >
       <div className="relative aspect-[9/16] w-full overflow-hidden bg-[rgba(20,10,30,0.95)]">
@@ -141,7 +128,7 @@ function ExploreGridCard({
           </span>
         )}
         {item.type === "image" ? (
-          // eslint-disable-next-line @next/next/no-img-element
+           
           <img
             src={url}
             alt={getItemTitle(item)}
@@ -152,7 +139,7 @@ function ExploreGridCard({
           <VideoThumb item={item} />
         )}
       </div>
-      <div className="px-3.5 py-3">
+      <div className="flex min-h-0 flex-1 flex-col px-3 py-3 max-sm:px-2.5 max-sm:py-2.5">
         <h3 className="mb-1 line-clamp-2 text-[0.95rem] font-semibold leading-snug text-[#e8e0f0]">
           {getItemTitle(item)}
         </h3>
@@ -164,7 +151,7 @@ function ExploreGridCard({
             <button
               key={tag}
               type="button"
-              className="cursor-pointer rounded-md border border-[rgba(147,112,219,0.3)] bg-[rgba(147,112,219,0.25)] px-2 py-1 text-[0.7rem] text-[rgba(232,224,240,0.85)] transition hover:border-[rgba(147,112,219,0.5)] hover:bg-[rgba(147,112,219,0.4)]"
+              className="cursor-pointer rounded-md border border-[rgba(147,112,219,0.3)] bg-[rgba(147,112,219,0.25)] px-1.5 py-0.5 text-[0.65rem] text-[rgba(232,224,240,0.85)] transition hover:border-[rgba(147,112,219,0.5)] hover:bg-[rgba(147,112,219,0.4)] max-sm:px-1 max-sm:py-0.5 max-sm:text-[0.6rem]"
               onClick={(e) => {
                 e.stopPropagation();
                 onTagClick(tag);
@@ -176,26 +163,26 @@ function ExploreGridCard({
         </div>
         <button
           type="button"
-          disabled={item.type !== "video" || generateBusy}
+          disabled={item.type !== "video" || !item.id}
           onClick={(e) => {
             e.stopPropagation();
-            if (item.type !== "video" || generateBusy) return;
-            onOpenUploadModal(item);
+            if (item.type !== "video" || !item.id) return;
+            onSelectCard(item);
           }}
           className={
             itemIsNew
-              ? "block w-full rounded-[10px] bg-gradient-to-br from-[#7b2cbf] to-[#2dd4bf] py-2 text-center text-[0.8rem] font-semibold text-white shadow-[0_4px_14px_rgba(45,212,191,0.3)] disabled:opacity-50"
-              : "block w-full rounded-[10px] bg-gradient-to-br from-[#e91e8c] to-[#ff6b35] py-2 text-center text-[0.8rem] font-semibold text-white shadow-[0_4px_14px_rgba(233,30,140,0.35)] transition group-hover:-translate-y-px group-hover:shadow-[0_6px_20px_rgba(233,30,140,0.45)] disabled:opacity-50"
+              ? "mt-auto block min-h-10 w-full touch-manipulation rounded-[10px] bg-gradient-to-br from-[#7b2cbf] to-[#2dd4bf] py-2 text-center text-[0.8rem] font-semibold text-white shadow-[0_4px_14px_rgba(45,212,191,0.3)] disabled:opacity-50 max-sm:min-h-9 max-sm:py-1.5 max-sm:text-[0.75rem]"
+              : "mt-auto block min-h-10 w-full touch-manipulation rounded-[10px] bg-gradient-to-br from-[#e91e8c] to-[#ff6b35] py-2 text-center text-[0.8rem] font-semibold text-white shadow-[0_4px_14px_rgba(233,30,140,0.35)] transition group-hover:-translate-y-px group-hover:shadow-[0_6px_20px_rgba(233,30,140,0.45)] disabled:opacity-50 max-sm:min-h-9 max-sm:py-1.5 max-sm:text-[0.75rem]"
           }
         >
-          {generateBusy ? "…" : "Gerar"}
+          {item.type === "video" && item.id ? "Gerar" : "Indisponível"}
         </button>
       </div>
     </article>
   );
 }
 
-/** Observa cards para animação de entrada (como no IntersectionObserver antigo). */
+/** Observa cards para animaÃ§Ã£o de entrada (como no IntersectionObserver antigo). */
 function useRevealCards(
   gridRef: React.RefObject<HTMLDivElement | null>,
   deps: DependencyList,
@@ -228,9 +215,20 @@ function useRevealCards(
         obs.observe(el);
       });
     };
+    const revealAllOnMobile = () => {
+      if (typeof window !== "undefined" && window.innerWidth < 640) {
+        root.querySelectorAll(".mirage-explore-card").forEach((el) => {
+          (el as HTMLElement).dataset.visible = "true";
+        });
+      }
+    };
     watchNew();
+    revealAllOnMobile();
     flushVisible();
-    requestAnimationFrame(() => flushVisible());
+    requestAnimationFrame(() => {
+      revealAllOnMobile();
+      flushVisible();
+    });
     const mo = new MutationObserver(() => {
       watchNew();
       flushVisible();
@@ -241,102 +239,17 @@ function useRevealCards(
       mo.disconnect();
       obs.disconnect();
     };
-  }, [gridRef, ...deps]); // eslint-disable-line react-hooks/exhaustive-deps -- deps vêm do caller
-}
-
-/** Sempre devolve um array (nunca `undefined`) para `.map` / UI não quebrarem com `tags` null no DB. */
-function parseDbTags(raw: unknown): string[] {
-  if (raw == null) return [];
-  if (Array.isArray(raw)) {
-    return raw
-      .filter((x): x is string => typeof x === "string")
-      .map((s) => s.trim())
-      .filter(Boolean);
-  }
-  return [];
-}
-
-function tagsFromVideoRow(row: VideoRow): string[] {
-  const anyRow = row as unknown as Record<string, unknown>;
-  const fromJson = parseDbTags(anyRow.tags);
-  if (fromJson.length) return fromJson;
-  const fromPrompt = parseTagsFromPromptSuffix(row.prompt);
-  if (fromPrompt.length) return fromPrompt;
-  return ["outros"];
-}
-
-function videoRowToMediaItem(row: VideoRow, index: number): MediaItem | null {
-  // De-para resiliente: algumas seeds antigas usam nomes tipo absoluteVideoUrl/displayTitle.
-  const anyRow = row as unknown as Record<string, unknown>;
-
-  const idRaw = anyRow.id;
-  const id = typeof idRaw === "string" ? idRaw : String(idRaw ?? "");
-
-  const titleRaw =
-    anyRow.title ??
-    anyRow.displayTitle ??
-    anyRow.display_title ??
-    anyRow.display_title;
-  const title =
-    titleRaw == null ? "" : String(titleRaw).trim();
-
-  const urlRaw =
-    anyRow.video_url ??
-    anyRow.absoluteVideoUrl ??
-    anyRow.absolute_video_url ??
-    anyRow.videoUrl ??
-    anyRow.videoURL;
-  const videoUrl =
-    urlRaw == null
-      ? null
-      : (() => {
-          const s = String(urlRaw).trim();
-          return s === "" ? null : s;
-        })();
-
-  // Se não tiver URL, o card vira “vazio” (vídeo sem src). Melhor não renderizar.
-  if (!videoUrl) return null;
-
-  return {
-    type: "video",
-    src: id || String(index),
-    base: "supabase:",
-    folderTag: null,
-    index,
-    id: id || undefined,
-    displayTitle: title || null,
-    absoluteVideoUrl: videoUrl,
-    absolutePosterUrl: getVideoThumbnailUrl(row),
-    dbTags: tagsFromVideoRow(row),
-  };
-}
-
-
-function ExploreDetailModalActions({
-  userId,
-  className,
-}: {
-  userId: string | null;
-  className?: string;
-}) {
-  return (
-    <div className={className}>
-      <UploadErrorBoundary>
-        <VideoGenerationUpload userId={userId} />
-      </UploadErrorBoundary>
-    </div>
-  );
+  }, [gridRef, ...deps]); // eslint-disable-line react-hooks/exhaustive-deps -- deps vÃªm do caller
 }
 
 type MirageExploreClientProps = {
-  /** `/explore`: primeiros 10 vídeos no Supabase e mais ao rolar (range). */
+  /** `/explore`: primeiros 10 vÃ­deos no Supabase e mais ao rolar (range). */
   explorePagination?: boolean;
 };
 
 export function MirageExploreClient({
   explorePagination = false,
 }: MirageExploreClientProps) {
-  const pathname = usePathname() || "/";
   const router = useRouter();
   const gridRef = useRef<HTMLDivElement>(null);
   const lastScrollYRef = useRef(0);
@@ -345,7 +258,6 @@ export function MirageExploreClient({
   const [sort, setSort] = useState<SortOrder>("todos");
   const [selectedTag, setSelectedTag] = useState("");
   const [tagMenuOpen, setTagMenuOpen] = useState(false);
-  const [modalItem, setModalItem] = useState<MediaItem | null>(null);
   const [controlsHidden, setControlsHidden] = useState(false);
   const [instantShow, setInstantShow] = useState(false);
   const [visibleCount, setVisibleCount] = useState(sliceBatch);
@@ -357,164 +269,16 @@ export function MirageExploreClient({
   const [dbHasMore, setDbHasMore] = useState(true);
   const [loadingMoreDb, setLoadingMoreDb] = useState(false);
   const dbFetchBusy = useRef(false);
-  /** Geração em curso (RPC `process_video_generation`) — id do modelo. */
-  const [generatingId, setGeneratingId] = useState<string | null>(null);
 
-  // Estado para o modal de upload de imagem
-  const [uploadModalOpen, setUploadModalOpen] = useState(false);
-  const [selectedModel, setSelectedModel] = useState<MediaItem | null>(null);
-  const [imageFile, setImageFile] = useState<File | null>(null);
-  const [uploadingImage, setUploadingImage] = useState(false);
-  const [modalToast, setModalToast] = useState<{ type: 'error' | 'success'; msg: string } | null>(null);
-
-  const handleGenerateForItem = useCallback(
-    async (item: MediaItem, mode: 'padrao' | 'estendido' = 'padrao', cost: number = 50) => {
-      if (!isSupabaseConfigured()) return;
-
-      setGeneratingId(item.id ?? null);
-      setUploadingImage(true);
-      setModalToast(null);
-      try {
-        const {
-          data: { user },
-        } = await supabase.auth.getUser();
-
-        if (!user) {
-          router.push(`/login?next=${encodeURIComponent(pathname)}`);
-          return;
-        }
-
-        // 1. Verificar e debitar diamantes atomicamente
-        console.log('[ExploreGen] Verificando e debitando diamantes...', { cost, mode });
-        const { data: debitResult, error: debitError } = await supabase
-          .rpc('check_and_debit_diamonds' as any, {
-            user_id_param: user.id,
-            cost_param: cost,
-          });
-
-        if (debitError) {
-          console.error('[ExploreGen] ❌ Erro ao debitar diamantes:', debitError);
-          setModalToast({ type: 'error', msg: 'Erro ao processar diamantes. Tente novamente.' });
-          return;
-        }
-
-        const debit = Array.isArray(debitResult) ? debitResult[0] : debitResult;
-        if (!debit?.success) {
-          const msg = debit?.message ?? 'Saldo insuficiente';
-          setModalToast({
-            type: 'error',
-            msg: msg === 'Saldo insuficiente'
-              ? `Diamantes insuficientes. Você precisa de ${cost} 💎.`
-              : msg,
-          });
-          return;
-        }
-
-        // 2. Criar registro na tabela generations
-        console.log('[ExploreGen] Criando registro na tabela generations...');
-        const { data: inserted, error: insertError } = await supabase
-          .from('generations' as any)
-          .insert({
-            user_id: user.id,
-            video_id: item.id ?? null,
-            source_url: item.absoluteVideoUrl ?? null,
-            status: 'pendente',
-            mode: mode,
-            diamond_cost: cost,
-          })
-          .select('id')
-          .single();
-
-        if (insertError) {
-          console.error('[ExploreGen] ❌ Erro ao criar geração:', insertError);
-          setModalToast({ type: 'error', msg: 'Erro ao criar pedido. Tente novamente.' });
-          return;
-        }
-
-        console.log('[ExploreGen] ✅ Linha criada na tabela generations:', { id: (inserted as any)?.id, mode, cost, saldo_restante: debit?.diamonds_after });
-        setModalToast({ type: 'success', msg: `Pedido criado! Saldo restante: ${debit?.diamonds_after} 💎` });
-
-        // Redirecionar após breve delay para o toast ser lido
-        setTimeout(() => {
-          setUploadModalOpen(false);
-          router.push('/minhas-geracoes');
-        }, 1200);
-
-      } catch (err) {
-        console.error('[ExploreGen] ❌ Erro no fluxo de geração:', err);
-        setModalToast({ type: 'error', msg: 'Erro inesperado. Tente novamente.' });
-      } finally {
-        setGeneratingId(null);
-        setUploadingImage(false);
-      }
+  const goToCreate = useCallback(
+    (item: MediaItem) => {
+      if (item.type !== "video" || !item.id) return;
+      router.push(`/criar/${item.id}`);
     },
-    [router, pathname],
+    [router],
   );
 
-  // Função para fazer upload da imagem para o admin
-  const handleImageUpload = useCallback(async () => {
-    if (!selectedModel || !imageFile) return;
-    
-    setUploadingImage(true);
-    try {
-      const {
-        data: { user },
-      } = await supabase.auth.getUser();
-      
-      if (!user) {
-        router.push(`/login?next=${encodeURIComponent(pathname)}`);
-        return;
-      }
-
-      // Upload da imagem para o storage bucket 'generations'
-      const fileName = `user-images/${user.id}/${Date.now()}-${imageFile.name}`;
-      const { error: uploadError } = await supabase.storage
-        .from('generations')
-        .upload(fileName, imageFile);
-
-      if (uploadError) {
-        throw uploadError;
-      }
-
-      // Obter URL pública
-      const { data: { publicUrl } } = supabase.storage
-        .from('generations')
-        .getPublicUrl(fileName);
-
-      // Salvar no banco de dados para o admin ver
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const { error: insertError } = await supabase
-        .from('generations' as any)
-        .insert({
-          user_id: user.id,
-          image_url: publicUrl,
-          video_url: null,
-          status: 'pending',
-          diamond_cost: PROCESS_VIDEO_GENERATION_COST,
-          created_at: new Date().toISOString(),
-          updated_at: new Date().toISOString()
-        });
-
-      if (insertError) {
-        throw insertError;
-      }
-
-      alert('Imagem enviada com sucesso! O admin irá visualizar e processar seu pedido.');
-      
-      // Fechar modal
-      setUploadModalOpen(false);
-      setSelectedModel(null);
-      setImageFile(null);
-      
-    } catch (error) {
-      console.error('Erro ao fazer upload:', error);
-      alert('Erro ao enviar imagem. Tente novamente.');
-    } finally {
-      setUploadingImage(false);
-    }
-  }, [selectedModel, imageFile, pathname, router]);
-
-  /** Sempre usa apenas vídeos do Supabase (sem lista estática). */
+  /** Sempre usa apenas vÃ­deos do Supabase (sem lista estÃ¡tica). */
   const mergedMediaList = useMemo(() => dbVideos, [dbVideos]);
 
   const loadDbVideos = useCallback(
@@ -537,7 +301,7 @@ export function MirageExploreClient({
         const { data, error } = await q.abortSignal(AbortSignal.timeout(15000));
 
         if (!append) {
-          console.log("Vídeos carregados:", data);
+          console.log("VÃ­deos carregados:", data);
         }
 
         if (error) {
@@ -546,7 +310,7 @@ export function MirageExploreClient({
             error.message,
             error.details,
           );
-          console.error("[explore] vídeos Supabase:", error);
+          console.error("[explore] vÃ­deos Supabase:", error);
           if (!append) setDbVideos([]);
           setDbHasMore(false);
           return;
@@ -579,7 +343,7 @@ export function MirageExploreClient({
         }
         if (process.env.NODE_ENV === "development") {
           console.log(
-            append ? "[explore] mais vídeos Supabase:" : "[explore] carregados do Supabase:",
+            append ? "[explore] mais vÃ­deos Supabase:" : "[explore] carregados do Supabase:",
             rows.length,
           );
         }
@@ -612,7 +376,7 @@ export function MirageExploreClient({
     return () => document.removeEventListener("visibilitychange", refetch);
   }, [loadDbVideos]);
 
-  /** Realtime: mudanças em `public.videos` → refetch. */
+  /** Realtime: mudanÃ§as em `public.videos` â†’ refetch. */
   useEffect(() => {
     if (!isSupabaseConfigured()) return;
     let t: ReturnType<typeof setTimeout> | null = null;
@@ -638,7 +402,7 @@ export function MirageExploreClient({
 
   useEffect(() => {
     if (process.env.NODE_ENV !== "development") return;
-    console.log("Vídeos carregados:", dbVideos.length);
+    console.log("VÃ­deos carregados:", dbVideos.length);
   }, [dbVideos.length]);
 
   useEffect(() => {
@@ -670,7 +434,7 @@ export function MirageExploreClient({
     setVisibleCount(Math.min(sliceBatch, Math.max(filtered.length, 0)));
   }, [filtered, sliceBatch]);
 
-  // Home: exibe TODOS os vídeos sem slice. /explore usa paginação visual.
+  // Home: exibe TODOS os vÃ­deos sem slice. /explore usa paginaÃ§Ã£o visual.
   const displayed = useMemo(
     () => explorePagination ? filtered.slice(0, visibleCount) : filtered,
     [filtered, visibleCount, explorePagination],
@@ -679,7 +443,7 @@ export function MirageExploreClient({
   const sentinelRef = useRef<HTMLDivElement>(null);
   const [inView, setInView] = useState(false);
 
-  /** `/explore`: sentinela visível → próximo bloco de 10 vídeos no Supabase (repete enquanto houver mais linhas). */
+  /** `/explore`: sentinela visÃ­vel â†’ prÃ³ximo bloco de 10 vÃ­deos no Supabase (repete enquanto houver mais linhas). */
   useEffect(() => {
     if (!explorePagination || !isSupabaseConfigured()) return;
     if (!inView || !dbHasMore || loadingDbVideos || loadingMoreDb) return;
@@ -723,7 +487,7 @@ export function MirageExploreClient({
         search.trim() === "" &&
         selectedTag === "" &&
         sort === "todos";
-      if (noVideosAtAll) return "Nenhum vídeo encontrado.";
+      if (noVideosAtAll) return "Nenhum vÃ­deo encontrado.";
 
       const noDbYet =
         explorePagination &&
@@ -753,9 +517,9 @@ export function MirageExploreClient({
     const filteredByUser =
       search.trim() !== "" || selectedTag !== "" || sort !== "todos";
     if (filteredByUser) {
-      return "Não há resultados com estes filtros. Limpa a pesquisa ou experimenta outra tag.";
+      return "NÃ£o hÃ¡ resultados com estes filtros. Limpa a pesquisa ou experimenta outra tag.";
     }
-    return "A galeria está à espera do primeiro conteúdo. Volta em breve — novos tesouros aparecem aqui quando forem publicados.";
+    return "A galeria estÃ¡ Ã  espera do primeiro conteÃºdo. Volta em breve â€” novos tesouros aparecem aqui quando forem publicados.";
   }, [explorePagination, search, selectedTag, sort]);
 
   const setTagFilter = useCallback((tag: string) => {
@@ -769,25 +533,9 @@ export function MirageExploreClient({
 
   useRevealCards(gridRef, [search, sort, selectedTag, visibleCount]);
 
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") setModalItem(null);
-    };
-    document.addEventListener("keydown", onKey);
-    return () => document.removeEventListener("keydown", onKey);
-  }, []);
-
-  useEffect(() => {
-    document.body.style.overflow = modalItem ? "hidden" : "";
-    return () => {
-      document.body.style.overflow = "";
-    };
-  }, [modalItem]);
-
-  // Mobile UX: esconde a barra de exploração (search/filtros/tags) ao descer e mostra ao subir.
+  // Mobile UX: esconde a barra de exploraÃ§Ã£o (search/filtros/tags) ao descer e mostra ao subir.
   useEffect(() => {
     if (typeof window === "undefined") return;
-    if (modalItem) return; // não mexe enquanto o modal está aberto
 
     const isMobile = () => window.innerWidth < 640; // < sm
     lastScrollYRef.current = window.scrollY || 0;
@@ -802,7 +550,7 @@ export function MirageExploreClient({
       const last = lastScrollYRef.current;
       const delta = y - last;
 
-      // evita “tremido” no topo
+      // evita â€œtremidoâ€ no topo
       if (y < 12) {
         setControlsHidden(false);
         lastScrollYRef.current = y;
@@ -814,10 +562,10 @@ export function MirageExploreClient({
         setInstantShow(false);
         setControlsHidden(true);
       } else if (delta < -8) {
-        // Show instantâneo ao subir
+        // Show instantÃ¢neo ao subir
         setInstantShow(true);
         setControlsHidden(false);
-        // volta ao modo “com animação” depois do 1º frame
+        // volta ao modo â€œcom animaÃ§Ã£oâ€ depois do 1Âº frame
         requestAnimationFrame(() => setInstantShow(false));
       }
 
@@ -826,9 +574,7 @@ export function MirageExploreClient({
 
     window.addEventListener("scroll", onScroll, { passive: true });
     return () => window.removeEventListener("scroll", onScroll);
-  }, [controlsHidden, modalItem]);
-
-  const closeModal = () => setModalItem(null);
+  }, [controlsHidden]);
 
   const loggedIn = Boolean(userId);
 
@@ -852,13 +598,13 @@ export function MirageExploreClient({
           <div className="flex flex-col gap-3 min-[520px]:flex-row min-[520px]:flex-wrap min-[520px]:items-center">
             <div className="relative min-w-0 w-full flex-1">
               <label htmlFor="search-input" className="sr-only">
-                Buscar vídeos
+                Buscar vÃ­deos
               </label>
               <span
                 className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-base opacity-70"
                 aria-hidden
               >
-                🔍
+                ðŸ”
               </span>
               <input
                 id="search-input"
@@ -885,8 +631,8 @@ export function MirageExploreClient({
                 }}
               >
                 <option value="todos">Todos</option>
-                <option value="az">Ordenar A–Z</option>
-                <option value="za">Ordenar Z–A</option>
+                <option value="az">Ordenar Aâ€“Z</option>
+                <option value="za">Ordenar Zâ€“A</option>
               </select>
             </div>
           </div>
@@ -903,7 +649,7 @@ export function MirageExploreClient({
                 className={`text-xl leading-none transition ${tagMenuOpen ? "rotate-90" : ""}`}
                 aria-hidden
               >
-                ☰
+                â˜°
               </span>
               <span>Tags</span>
             </button>
@@ -938,9 +684,9 @@ export function MirageExploreClient({
             aria-live="polite"
           >
             {loadingDbVideos ? (
-              <span className="text-violet-200/90">Carregando vídeos…</span>
+              <span className="text-violet-200/90">Carregando vÃ­deosâ€¦</span>
             ) : loadingMoreDb && explorePagination ? (
-              <span className="text-violet-200/90">A carregar mais vídeos…</span>
+              <span className="text-violet-200/90">A carregar mais vÃ­deosâ€¦</span>
             ) : (
               searchMsg
             )}
@@ -1016,15 +762,8 @@ export function MirageExploreClient({
               <ExploreGridCard
                 key={itemKey(item)}
                 item={item}
-                onOpen={setModalItem}
+                onSelectCard={goToCreate}
                 onTagClick={onCardTagClick}
-                onGenerateClick={handleGenerateForItem}
-                onOpenUploadModal={(item) => {
-                  setSelectedModel(item);
-                  setImageFile(null);
-                  setUploadModalOpen(true);
-                }}
-                generateBusy={generatingId === item.id}
               />
             ))
           )}
@@ -1038,224 +777,6 @@ export function MirageExploreClient({
           />
         )}
       </main>
-
-      {modalItem && (
-        <div
-          className="fixed inset-0 z-[1000] flex items-center justify-center p-5 opacity-100"
-          role="dialog"
-          aria-modal="true"
-          aria-labelledby="explore-modal-title"
-        >
-          <button
-            type="button"
-            className="absolute inset-0 bg-[rgba(15,10,24,0.75)] backdrop-blur-md"
-            aria-label="Fechar"
-            onClick={closeModal}
-          />
-          <div className="relative flex max-h-[95vh] w-full max-w-[90vw] flex-col overflow-hidden rounded-[20px] border border-[rgba(147,112,219,0.4)] bg-[rgba(26,15,46,0.95)] shadow-[0_24px_60px_rgba(0,0,0,0.5)] md:max-h-[95vh] md:max-w-7xl md:p-10 md:pt-8">
-            <button
-              type="button"
-              className="absolute right-4 top-4 z-20 flex h-11 w-11 items-center justify-center rounded-full border border-[rgba(147,112,219,0.35)] bg-[rgba(15,10,24,0.65)] text-2xl leading-none text-[#e9d5ff] backdrop-blur-md hover:bg-[rgba(147,112,219,0.35)] md:right-3 md:top-3"
-              aria-label="Fechar"
-              onClick={closeModal}
-            >
-              ×
-            </button>
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-6 md:gap-8 p-6 pt-12 md:pt-6 md:items-stretch">
-              {/* Lado Esquerdo - Vídeo de Referência */}
-              <div className="flex flex-col space-y-4">
-                <div className="aspect-[9/16] w-full overflow-hidden rounded-xl border border-[rgba(147,112,219,0.3)] bg-black">
-                  {modalItem.type === "image" ? (
-                    // eslint-disable-next-line @next/next/no-img-element
-                    <img
-                      src={getStreamUrl(modalItem)}
-                      alt={getItemTitle(modalItem)}
-                      className="h-full w-full object-cover"
-                    />
-                  ) : (
-                    <VideoThumb item={modalItem} />
-                  )}
-                </div>
-                <div className="space-y-2">
-                  <h2
-                    id="explore-modal-title"
-                    className="text-xl font-semibold text-[#e9d5ff]"
-                  >
-                    {getItemTitle(modalItem)}
-                  </h2>
-                  <div className="flex flex-wrap gap-1.5">
-                    {getTagsForItem(modalItem).map((tag) => (
-                      <span
-                        key={tag}
-                        className="rounded-full border border-[rgba(147,112,219,0.4)] bg-[rgba(147,112,219,0.25)] px-2.5 py-1 text-xs text-[#d4b8f0]"
-                      >
-                        {tag}
-                      </span>
-                    ))}
-                  </div>
-                </div>
-              </div>
-
-              {/* Lado Direito - Upload e Ação */}
-              <div className="flex flex-col h-full">
-                <div className="flex-1">
-                  <UploadErrorBoundary>
-                    <VideoGenerationUpload userId={userId} />
-                  </UploadErrorBoundary>
-                </div>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Modal de Upload de Imagem */}
-      {uploadModalOpen && selectedModel && (
-        <div
-          className="fixed inset-0 z-50 flex items-center justify-center p-4 sm:p-6"
-          role="dialog"
-          aria-modal="true"
-          aria-labelledby="upload-modal-title"
-        >
-          <div className="fixed inset-0 bg-black/75 backdrop-blur-md" onClick={() => setUploadModalOpen(false)} />
-          <div className="relative z-10 w-full max-w-5xl rounded-2xl border border-[rgba(147,112,219,0.4)] bg-[#1a1025] shadow-2xl overflow-hidden">
-            <button
-              type="button"
-              className="absolute right-4 top-4 z-10 rounded-lg p-2 text-zinc-400 hover:bg-white/10 hover:text-white"
-              onClick={() => setUploadModalOpen(false)}
-              aria-label="Fechar"
-            >
-              <X className="h-5 w-5" />
-            </button>
-            
-            <div className="grid lg:grid-cols-2">
-              {/* Lado Esquerdo - Vídeo Original Grande */}
-              <div className="aspect-video lg:aspect-auto lg:h-auto bg-black flex items-center justify-center">
-                {selectedModel.type === "image" ? (
-                  <img
-                    src={getStreamUrl(selectedModel)}
-                    alt={getItemTitle(selectedModel)}
-                    className="max-h-[60vh] w-auto object-contain"
-                  />
-                ) : (
-                  <VideoThumb item={selectedModel} />
-                )}
-              </div>
-
-              {/* Lado Direito - Upload e Botões */}
-              <div className="p-6 sm:p-8 flex flex-col justify-center space-y-5">
-                <div>
-                  <h3
-                    id="upload-modal-title"
-                    className="text-xl sm:text-2xl font-bold text-white"
-                  >
-                    Gerar Vídeo Personalizado
-                  </h3>
-                  <p className="mt-2 text-sm text-zinc-400">
-                    Modelo: <span className="text-violet-300 font-medium">{getItemTitle(selectedModel)}</span>
-                  </p>
-                </div>
-
-                {/* Upload de imagem / GIF */}
-                <div className="space-y-2">
-                  <label className="block text-sm font-medium text-zinc-300">
-                    Sua foto ou GIF <span className="text-zinc-500 font-normal">(opcional)</span>
-                  </label>
-                  <input
-  type="file"
-  // Adicione image/gif explicitamente se o image/* falhar em alguns navegadores
-  accept="image/png, image/jpeg, image/jpg, image/gif" 
-  onChange={(e) => {
-    const file = e.target.files?.[0] ?? null;
-    setImageFile(file);
-    console.log("Arquivo selecionado:", file?.name); // Para você ver no console se pegou o GIF
-    setModalToast(null);
-  }}
- className="w-full cursor-pointer rounded-xl border border-zinc-700 bg-zinc-900/50 px-4 py-3 text-sm text-zinc-300 transition file:mr-4 file:rounded-lg file:border-0 file:bg-violet-600 file:px-3 file:py-1 file:text-xs file:font-semibold file:text-white hover:file:bg-violet-500"
-/>
-                  {imageFile && (
-                    <div className="flex items-center gap-2 text-sm text-green-400">
-                      <CheckCircle2 className="h-4 w-4" />
-                      {imageFile.name}
-                    </div>
-                  )}
-                </div>
-
-                {/* Inline toast */}
-                {modalToast && (
-                  <div className={`rounded-lg border px-4 py-3 text-sm ${
-                    modalToast.type === 'error'
-                      ? 'border-red-500/30 bg-red-950/40 text-red-300'
-                      : 'border-emerald-500/30 bg-emerald-950/40 text-emerald-300'
-                  }`}>
-                    {modalToast.msg}
-                  </div>
-                )}
-
-                {/* Botões — SEM disabled */}
-                <div className="space-y-3">
-  {/* Botão A: Padrão 50 💎 */}
-  <button
-    type="button"
-    style={{ pointerEvents: 'auto', cursor: 'pointer' }}
-    onClick={() => {
-      console.log('Botão Clicado! [Padrão 50💎]');
-      setModalToast(null);
-      // Se não tiver modelo, a gente avisa em vez de só travar
-      if (!selectedModel) {
-        alert("Por favor, selecione um modelo antes de gerar!");
-        return;
-      }
-      void handleGenerateForItem(selectedModel, 'padrao', 50);
-    }}
-    className="w-full rounded-xl border border-violet-500/50 bg-gradient-to-r from-violet-600 to-fuchsia-600 px-5 py-3.5 text-sm font-semibold text-white shadow-lg shadow-violet-900/40 transition-all duration-200 hover:from-violet-500 hover:to-fuchsia-500 hover:shadow-violet-500/50 hover:shadow-xl active:scale-[0.98]"
-  >
-    {uploadingImage ? (
-      <span className="flex items-center justify-center gap-2">
-        <LoaderCircle className="h-4 w-4 animate-spin" />
-        Gerando...
-      </span>
-    ) : (
-      <span className="flex items-center justify-center gap-2">
-        <Sparkles className="h-4 w-4" />
-        Gerar Vídeo (50 💎)
-      </span>
-    )}
-  </button>
-
-  {/* Botão B: Estendido 100 💎 - estilo VIP dourado */}
-  <button
-    type="button"
-    style={{ pointerEvents: 'auto', cursor: 'pointer', boxShadow: '0 0 24px rgba(251,191,36,0.2), 0 4px 16px rgba(0,0,0,0.5)' }}
-    onClick={() => {
-      console.log('Botão Clicado! [Estendido 100💎]');
-      setModalToast(null);
-      if (!selectedModel) {
-        alert("Por favor, selecione um modelo antes de gerar!");
-        return;
-      }
-      void handleGenerateForItem(selectedModel, 'estendido', 100);
-    }}
-    className="w-full rounded-xl border-2 border-amber-400/70 bg-gradient-to-r from-amber-900/60 to-yellow-900/60 px-5 py-3.5 text-sm font-semibold text-amber-200 transition-all duration-200 hover:border-amber-300 hover:from-amber-800/70 hover:to-yellow-800/70 hover:text-amber-100 hover:shadow-amber-400/40 hover:shadow-xl active:scale-[0.98]"
-  >
-    {uploadingImage ? (
-      <span className="flex items-center justify-center gap-2">
-        <LoaderCircle className="h-4 w-4 animate-spin" />
-        Gerando...
-      </span>
-    ) : (
-      <span className="flex items-center justify-center gap-2">
-        <Gem className="h-4 w-4" />
-        Geração Estendida (100 💎)
-      </span>
-    )}
-  </button>
-</div>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
     </>
   );
 }

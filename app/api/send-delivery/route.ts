@@ -176,6 +176,8 @@ export async function POST(request: NextRequest) {
       </html>
     `
 
+    void emailContent
+
     // Simulação de envio de email (implementação futura com serviço de email)
     console.log('Email enviado para:', email)
     console.log('Assunto: ✨ Sua Geração Miragem Está Pronta!')

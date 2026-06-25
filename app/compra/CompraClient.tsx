@@ -1,6 +1,5 @@
 "use client";
 
-import { MercadoPagoWalletCheckout } from "@/components/compra/MercadoPagoWalletCheckout";
 import { DIAMOND_PACK_IDS, DIAMOND_PACKS, type DiamondPackId } from "@/lib/diamondPacks";
 import { isSupabaseConfigured, supabase } from "@/lib/supabaseClient";
 import type { AuthChangeEvent, Session } from "@supabase/supabase-js";
@@ -13,11 +12,6 @@ export function CompraClient() {
   );
   const [error, setError] = useState<string | null>(null);
   const [userId, setUserId] = useState<string | null>(null);
-  /** Preferência MP após POST /api/create-preference (Wallet Brick + link alternativo). */
-  const [mpCheckout, setMpCheckout] = useState<{
-    preferenceId: string;
-    initPoint: string;
-  } | null>(null);
 
   useEffect(() => {
     if (!isSupabaseConfigured()) return;
@@ -44,7 +38,7 @@ export function CompraClient() {
         return;
       }
       setDiamondLoading(packId);
-      setMpCheckout(null);
+      let redirecting = false;
       try {
         const res = await fetch("/api/create-preference", {
           method: "POST",
@@ -57,16 +51,8 @@ export function CompraClient() {
           return;
         }
         const initPoint = typeof data.init_point === "string" ? data.init_point : "";
-        const preferenceId = typeof data.id === "string" ? data.id : "";
-        const hasPublicKey = Boolean(
-          typeof process.env.NEXT_PUBLIC_MP_PUBLIC_KEY === "string" &&
-            process.env.NEXT_PUBLIC_MP_PUBLIC_KEY.trim(),
-        );
-        if (preferenceId && initPoint) {
-          if (hasPublicKey) {
-            setMpCheckout({ preferenceId, initPoint });
-            return;
-          }
+        if (initPoint) {
+          redirecting = true;
           window.location.href = initPoint;
           return;
         }
@@ -74,7 +60,7 @@ export function CompraClient() {
       } catch {
         setError("Erro de rede. Tente novamente.");
       } finally {
-        setDiamondLoading(null);
+        if (!redirecting) setDiamondLoading(null);
       }
     },
     [userId],
@@ -112,34 +98,6 @@ export function CompraClient() {
           >
             {error}
           </p>
-        ) : null}
-
-        {mpCheckout ? (
-          <div className="mx-auto mt-8 w-full max-w-lg rounded-2xl border border-[var(--border-glow)] bg-[var(--card)] p-4 text-left shadow-[0_0_40px_-18px_rgba(147,112,219,0.25)]">
-            <p className="text-sm font-medium text-[var(--foreground)]">
-              Pagamento Mercado Pago
-            </p>
-            <p className="mt-1 text-xs text-[var(--muted)]">
-              Use o botão abaixo (Checkout Pro / Wallet Brick). Pix e outros meios
-              dependem da sua conta MP.
-            </p>
-            <div className="mt-4">
-              <MercadoPagoWalletCheckout preferenceId={mpCheckout.preferenceId} />
-            </div>
-            <a
-              href={mpCheckout.initPoint}
-              className="mt-4 inline-flex w-full items-center justify-center rounded-xl border border-violet-500/30 bg-violet-950/20 px-4 py-2.5 text-sm font-medium text-violet-200 hover:bg-violet-950/40"
-            >
-              Abrir checkout em página completa
-            </a>
-            <button
-              type="button"
-              onClick={() => setMpCheckout(null)}
-              className="mt-2 w-full text-center text-xs text-[var(--muted)] hover:text-[var(--foreground)]"
-            >
-              Fechar
-            </button>
-          </div>
         ) : null}
 
         <div className="mx-auto mt-10 grid w-full max-w-lg grid-cols-1 gap-4 sm:grid-cols-3">

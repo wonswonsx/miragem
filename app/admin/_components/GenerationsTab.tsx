@@ -1,7 +1,11 @@
 "use client";
 
 import { createClient } from "@/lib/supabase/client";
-import { LoaderCircle, Upload, X, Download, Eye, Image as ImageIcon } from "lucide-react";
+import {
+  formatAdminNewOrderMessage,
+  isPendingGenerationStatus,
+} from "@/lib/adminNewOrderMessage";
+import { Eye, LoaderCircle, Upload } from "lucide-react";
 import Image from "next/image";
 import { useEffect, useState } from "react";
 
@@ -10,7 +14,8 @@ type Generation = {
   user_id: string;
   image_url: string;
   video_url: string | null;
-  status: 'pending' | 'processing' | 'completed' | 'failed';
+  card_name?: string | null;
+  status: 'pending' | 'processing' | 'completed' | 'failed' | 'pendente' | string;
   diamond_cost: number;
   created_at: string;
   updated_at: string;
@@ -33,14 +38,14 @@ export function GenerationsTab() {
     const fetchGenerations = async () => {
       try {
         const sb = createClient();
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+         
         const { data, error } = await sb
           .from('generations' as any)
           .select(`
             *,
             profiles!inner(email, display_name)
           `)
-          .eq('status', 'pending')
+          .or("status.eq.pendente,status.eq.pending,status.eq.processing")
           .order('created_at', { ascending: false });
 
         if (error) {
@@ -48,7 +53,7 @@ export function GenerationsTab() {
           return;
         }
 
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+         
         setGenerations(data as unknown as Generation[] || []);
       } catch (err) {
         console.error('Erro ao buscar gerações:', err);
@@ -56,6 +61,34 @@ export function GenerationsTab() {
     };
 
     fetchGenerations();
+  }, []);
+
+  // Realtime subscription para ouvir novos INSERTs na tabela generations
+  useEffect(() => {
+    const sb = createClient();
+    const channel = sb
+      .channel('admin-orders') // Nome qualquer para o canal
+      .on(
+        'postgres_changes',
+        { event: 'INSERT', schema: 'public', table: 'generations' },
+        (payload) => {
+          const row = payload.new as Generation;
+          if (!isPendingGenerationStatus(row.status)) return;
+
+          console.log('🔔 NOVO PEDIDO CHEGOU:', payload);
+          const audio = new Audio('/sounds/notification.mp3');
+          audio.play();
+          setToast({ type: 'ok', text: formatAdminNewOrderMessage(row) });
+          setGenerations((current) => [row, ...current]);
+        }
+      )
+      .subscribe((status) => {
+        console.log('📡 Status da rádio Admin:', status);
+      });
+
+    return () => {
+      sb.removeChannel(channel);
+    };
   }, []);
 
   // Fazer upload do vídeo final
@@ -84,7 +117,7 @@ export function GenerationsTab() {
         .getPublicUrl(fileName);
 
       // Atualizar generation para completed
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+       
       const { error: updateError } = await sb
         .from('generations' as any)
         .update({
@@ -169,8 +202,13 @@ export function GenerationsTab() {
                 <div className="col-span-6">
                   <div className="space-y-1">
                     <div className="text-sm font-medium text-[#e9d5ff]">
-                      {generation.profiles?.display_name || generation.profiles?.email}
+                      {generation.card_name?.trim() || generation.profiles?.display_name || generation.profiles?.email}
                     </div>
+                    {generation.card_name ? (
+                      <div className="text-xs text-violet-300/90">
+                        Modelo: {generation.card_name}
+                      </div>
+                    ) : null}
                     <div className="text-xs text-[rgba(232,224,240,0.6)]">
                       {generation.profiles?.email}
                     </div>

@@ -1,5 +1,4 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { createClient } from '@/lib/supabase/server'
 import { createServiceRoleClient } from '@/lib/supabase/service-role'
 
 export async function POST(request: NextRequest) {
@@ -43,7 +42,7 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+     
     const { data: generation, error: fetchError } = await supabase
       .from('generations' as any)
       .select('user_id, status')
@@ -75,7 +74,7 @@ export async function POST(request: NextRequest) {
     const videoPath = `${userId}/${generationId}/video.${videoFile.name.split('.').pop()}`
     const videoBuffer = Buffer.from(await videoFile.arrayBuffer())
 
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+     
     const { error: videoUploadError } = await supabase.storage
       .from(storageBucket)
       .upload(videoPath, videoBuffer, {
@@ -103,7 +102,7 @@ export async function POST(request: NextRequest) {
       const thumbnailPath = `${userId}/${generationId}/thumbnail.${thumbnailFile.name.split('.').pop()}`
       const thumbnailBuffer = Buffer.from(await thumbnailFile.arrayBuffer())
 
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+       
       const { error: thumbnailUploadError } = await supabase.storage
         .from(storageBucket)
         .upload(thumbnailPath, thumbnailBuffer, {
@@ -123,7 +122,7 @@ export async function POST(request: NextRequest) {
     }
 
     // Atualizar o registro da geração
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+     
     const { error: updateError } = await supabase
       .from('generations' as any)
       .update({

@@ -69,6 +69,11 @@ function getBrowserClientSingleton(): SupabaseClient<Database> {
     global: {
       fetch: supabaseListVideosFetch,
     },
+    realtime: {
+      params: {
+        eventsPerSecond: 10,
+      },
+    },
   });
   return browserClient;
 }

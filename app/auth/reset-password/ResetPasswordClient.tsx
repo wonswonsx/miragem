@@ -1,6 +1,7 @@
 "use client";
 
 import { isSupabaseConfigured, supabase } from "@/lib/supabaseClient";
+import { friendlyAuthErrorMessage } from "@/lib/auth/userMessages";
 import { Loader2 } from "lucide-react";
 import { useRouter } from "next/navigation";
 import type { FormEvent } from "react";
@@ -54,7 +55,8 @@ export function ResetPasswordClient() {
     try {
       const { error: upErr } = await supabase.auth.updateUser({ password });
       if (upErr) {
-        setError(upErr.message);
+        console.error("[reset-password] updateUser:", upErr);
+        setError(friendlyAuthErrorMessage(upErr, "Não foi possível atualizar a senha. Tente novamente."));
         return;
       }
       setInfo("Senha atualizada. A redirecionar…");

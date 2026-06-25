@@ -1,9 +1,8 @@
 "use server";
 
 import { mergeTagsIntoPrompt } from "@/lib/mirageMedia";
-import { DIAMOND_PACKS, isDiamondPackId } from "@/lib/diamondPacks";
 import { toAdminProfileRow } from "@/lib/adminProfileRow";
-import { isAdminStaff, isStaff } from "@/lib/auth/staff";
+import { isAdminStaff } from "@/lib/auth/staff";
 import { createClient } from "@/lib/supabase/server";
 import { createServiceRoleClient } from "@/lib/supabase/service-role";
 import type { TablesInsert } from "@/lib/database.types";
@@ -14,7 +13,14 @@ import {
 } from "@/lib/supabase/storagePaths";
 import type {
   AdminProfileRow,
+  SupportMessageRow,
 } from "@/types/database";
+
+export type EconomyUserRow = {
+  id: string;
+  email: string;
+  diamonds: number;
+};
 
 async function requireStaffSession() {
   const supabase = await createClient();
@@ -125,7 +131,7 @@ export async function createVideoFromStagingAction(
       
       for (const tagName of tagList) {
         const { data: existingTag, error: tagError } = await sb
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+           
           .from('tags' as any)
           .select('id')
           .eq('name', tagName)
@@ -137,7 +143,7 @@ export async function createVideoFromStagingAction(
           // Tag não existe, criar nova
           console.log('[createVideoFromStagingAction] Criando nova tag:', tagName);
           const { data: newTag, error: createError } = await sb
-            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+             
             .from('tags' as any)
             .insert({ name: tagName })
             .select('id')
@@ -148,11 +154,11 @@ export async function createVideoFromStagingAction(
             continue; // Continuar com outras tags
           }
           
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+           
           tagId = (newTag as any).id;
           console.log('[createVideoFromStagingAction] Tag criada com ID:', tagId);
         } else {
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+           
           tagId = (existingTag as any).id;
           console.log('[createVideoFromStagingAction] Tag existente com ID:', tagId);
         }
@@ -196,7 +202,7 @@ export async function createVideoFromStagingAction(
       }));
       
       const { error: relError } = await sb
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+         
         .from('video_tags' as any)
         .insert(videoTagRelations);
       
@@ -390,5 +396,171 @@ export async function listCategoriesAction(): Promise<ListCategoriesResult> {
     return { ok: true, data: rows };
   } catch (e) {
     return { ok: false, error: e instanceof Error ? e.message : "Erro ao listar categorias." };
+  }
+}
+
+export type ListAdminProfilesResult =
+  | { ok: true; data: AdminProfileRow[] }
+  | { ok: false; error: string };
+
+export async function listAdminProfilesAction(): Promise<ListAdminProfilesResult> {
+  try {
+    await requireStaffSession();
+    const service = getAdminSupabase();
+    const userSb = await createClient();
+    const sb = service ?? userSb;
+    if (!sb) return { ok: false, error: "Cliente Supabase indisponível." };
+    const { data, error } = await sb
+      .from("profiles")
+      .select("*")
+      .order("created_at", { ascending: false });
+    if (error) return { ok: false, error: error.message };
+    return { ok: true, data: (data ?? []).map(toAdminProfileRow) };
+  } catch (e) {
+    return { ok: false, error: e instanceof Error ? e.message : "Erro ao listar perfis." };
+  }
+}
+
+export async function setProfileBannedAction(
+  profileId: string,
+  isBanned: boolean,
+): Promise<{ ok: true } | { ok: false; error: string }> {
+  try {
+    await requireStaffSession();
+    const service = getAdminSupabase();
+    const userSb = await createClient();
+    const sb = service ?? userSb;
+    if (!sb) return { ok: false, error: "Cliente Supabase indisponível." };
+    const { error } = await sb
+      .from("profiles")
+      .update({ is_banned: isBanned })
+      .eq("id", profileId);
+    if (error) return { ok: false, error: error.message };
+    return { ok: true };
+  } catch (e) {
+    return { ok: false, error: e instanceof Error ? e.message : "Erro ao atualizar perfil." };
+  }
+}
+
+export async function adminAdjustDiamondsByProfileAction(
+  profileId: string,
+  delta: number,
+): Promise<{ ok: true; newDiamonds: number } | { ok: false; error: string }> {
+  try {
+    const { user } = await requireStaffSession();
+    const service = getAdminSupabase();
+    const userSb = await createClient();
+    const sb = service ?? userSb;
+    if (!sb) return { ok: false, error: "Cliente Supabase indisponível." };
+    const { data: profile, error: readError } = await sb
+      .from("profiles")
+      .select("diamonds")
+      .eq("id", profileId)
+      .maybeSingle();
+    if (readError) return { ok: false, error: readError.message };
+    const current = Number(profile?.diamonds ?? 0);
+    const amount = Math.trunc(delta);
+    const next = Math.max(0, current + amount);
+    const { error: updateError } = await sb
+      .from("profiles")
+      .update({ diamonds: next })
+      .eq("id", profileId);
+    if (updateError) return { ok: false, error: updateError.message };
+    await sb.from("diamond_transactions").insert({
+      user_id: profileId,
+      delta: amount,
+      type: "admin_adjustment",
+      created_by: user.id,
+      payment_ref: null,
+    });
+    return { ok: true, newDiamonds: next };
+  } catch (e) {
+    return { ok: false, error: e instanceof Error ? e.message : "Erro ao ajustar diamantes." };
+  }
+}
+
+export type ListEconomyUsersResult =
+  | { ok: true; data: EconomyUserRow[] }
+  | { ok: false; error: string };
+
+export async function listEconomyUsersAction(): Promise<ListEconomyUsersResult> {
+  try {
+    await requireStaffSession();
+    const service = getAdminSupabase();
+    const userSb = await createClient();
+    const sb = service ?? userSb;
+    if (!sb) return { ok: false, error: "Cliente Supabase indisponível." };
+    const { data, error } = await sb
+      .from("profiles")
+      .select("id, email, diamonds")
+      .order("email", { ascending: true });
+    if (error) return { ok: false, error: error.message };
+    return {
+      ok: true,
+      data: (data ?? []).map((row) => ({
+        id: row.id,
+        email: row.email ?? "",
+        diamonds: Number(row.diamonds ?? 0),
+      })),
+    };
+  } catch (e) {
+    return { ok: false, error: e instanceof Error ? e.message : "Erro ao listar utilizadores." };
+  }
+}
+
+export async function adminAdjustDiamondsWithTransactionAction(
+  profileId: string,
+  delta: number,
+): Promise<{ ok: true; newDiamonds: number } | { ok: false; error: string }> {
+  return adminAdjustDiamondsByProfileAction(profileId, delta);
+}
+
+export type ListSupportMessagesResult =
+  | { ok: true; data: SupportMessageRow[] }
+  | { ok: false; error: string };
+
+export async function listSupportMessagesAction(
+  sessionId: string,
+): Promise<ListSupportMessagesResult> {
+  try {
+    await requireStaffSession();
+    const service = getAdminSupabase();
+    const userSb = await createClient();
+    const sb = service ?? userSb;
+    if (!sb) return { ok: false, error: "Cliente Supabase indisponível." };
+    const { data, error } = await sb
+      .from("support_messages")
+      .select("id, session_id, sender, body, created_at, is_admin, image_url")
+      .eq("session_id", sessionId)
+      .order("created_at", { ascending: true });
+    if (error) return { ok: false, error: error.message };
+    return { ok: true, data: data as unknown as SupportMessageRow[] };
+  } catch (e) {
+    return { ok: false, error: e instanceof Error ? e.message : "Erro ao listar mensagens." };
+  }
+}
+
+export async function postAdminSupportReplyAction(
+  sessionId: string,
+  body: string,
+): Promise<{ ok: true } | { ok: false; error: string }> {
+  try {
+    await requireStaffSession();
+    const service = getAdminSupabase();
+    const userSb = await createClient();
+    const sb = service ?? userSb;
+    if (!sb) return { ok: false, error: "Cliente Supabase indisponível." };
+    const text = body.trim();
+    if (!text) return { ok: false, error: "Mensagem vazia." };
+    const { error } = await sb.from("support_messages").insert({
+      session_id: sessionId,
+      sender: "admin",
+      is_admin: true,
+      body: text,
+    });
+    if (error) return { ok: false, error: error.message };
+    return { ok: true };
+  } catch (e) {
+    return { ok: false, error: e instanceof Error ? e.message : "Erro ao enviar resposta." };
   }
 }
